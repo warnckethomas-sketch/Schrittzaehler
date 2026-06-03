@@ -108,6 +108,7 @@ fun StepTrackerDashboard(
 
     // Selected day state (for detailing the tapped bar)
     val todayStr = remember { DateUtils.getTodayString() }
+    val hasTodayEntry = allEntries.any { it.date == todayStr }
     val currentPeriodDays = if (activePeriodType == PeriodType.WEEK) weeklyStats.daysData else monthlyStats.daysData
 
     var selectedDayDateStr by remember(activePeriodType, weeklyStats.mondayDateStr, monthlyStats.monthLabel) { 
@@ -437,7 +438,7 @@ fun StepTrackerDashboard(
                                     letterSpacing = 1.sp
                                 )
                                 Text(
-                                    text = "Schrittverlauf schnell ergänzen",
+                                    text = if (hasTodayEntry) "Schrittverlauf aktuell" else "Schrittverlauf schnell ergänzen",
                                     fontSize = 13.sp,
                                     color = Color(0xFF49454F),
                                     fontWeight = FontWeight.Medium
