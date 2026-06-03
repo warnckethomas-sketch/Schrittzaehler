@@ -1,0 +1,6 @@
+{
+  "name": "Schrittzähler",
+  "description": "Erfassen Sie Ihre Schritte täglich, verwalten Sie Ihre Schrittlänge zur automatischen Distanzmessung und lernen Sie aus wöchentlichen Auswertungen (Montag bis Sonntag).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
