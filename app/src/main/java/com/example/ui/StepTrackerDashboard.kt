@@ -87,6 +87,7 @@ fun StepTrackerDashboard(
     var showStepLengthConfig by remember { mutableStateOf(false) }
     var showExitConfirmationDialog by remember { mutableStateOf(false) }
     var activeTab by remember { mutableStateOf(0) } // 0 = Dashboard, 1 = Historie & Backup
+    var visibleMonthsLimit by remember { mutableStateOf(1) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -103,6 +104,12 @@ fun StepTrackerDashboard(
         if (isAutoBackupEnabled) {
             kotlinx.coroutines.delay(2000)
             viewModel.triggerAutoBackup(context)
+        }
+    }
+
+    LaunchedEffect(activeTab) {
+        if (activeTab == 0) {
+            visibleMonthsLimit = 1
         }
     }
 
@@ -818,7 +825,16 @@ fun StepTrackerDashboard(
                         )
                     }
 
-                if (historyDays.isNotEmpty()) {
+                val visibleMonthPrefixes = getVisibleMonthPrefixes(todayStr, visibleMonthsLimit)
+                val visibleHistoryDays = historyDays.filter { day ->
+                    visibleMonthPrefixes.contains(day.dateStr.take(7))
+                }
+
+                val hasOlderEntries = historyDays.any { day ->
+                    !visibleMonthPrefixes.contains(day.dateStr.take(7))
+                }
+
+                if (visibleHistoryDays.isNotEmpty()) {
                     item {
                         Text(
                             text = "Eintrag-Historie",
@@ -837,7 +853,7 @@ fun StepTrackerDashboard(
                                 .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            historyDays.forEach { day ->
+                            visibleHistoryDays.forEach { day ->
                                 val num = entryNumbers[day.dateStr] ?: 0
                                 LogItemRow(
                                     dayData = day,
@@ -855,6 +871,30 @@ fun StepTrackerDashboard(
                             }
                         }
                     }
+                } else if (historyDays.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Eintrag-Historie",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1D1B20),
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Keine Einträge im aktuellen Zeitraum geladen.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF49454F)
+                            )
+                        }
+                    }
                 } else {
                     item {
                         Box(
@@ -868,6 +908,46 @@ fun StepTrackerDashboard(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFF49454F)
                             )
+                        }
+                    }
+                }
+
+                if (hasOlderEntries) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Button(
+                                onClick = { visibleMonthsLimit++ },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFEADDFF).copy(alpha = 0.8f),
+                                    contentColor = Color(0xFF21005D)
+                                ),
+                                border = BorderStroke(1.dp, Color(0xFF6750A4).copy(alpha = 0.2f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("load_more_entries_btn")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Text(
+                                        text = "Weitere Einträge laden?",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -2695,4 +2775,21 @@ fun LocalBackupCard(
             }
         }
     }
+}
+
+private fun getVisibleMonthPrefixes(todayStr: String, limit: Int): List<String> {
+    val prefixes = mutableListOf<String>()
+    val sdf = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.GERMANY)
+    try {
+        val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.GERMANY).parse(todayStr) ?: java.util.Date()
+        val cal = java.util.Calendar.getInstance(java.util.Locale.GERMANY)
+        cal.time = date
+        for (i in 0 until limit) {
+            prefixes.add(sdf.format(cal.time))
+            cal.add(java.util.Calendar.MONTH, -1)
+        }
+    } catch (e: Exception) {
+        prefixes.add(todayStr.take(7))
+    }
+    return prefixes
 }
