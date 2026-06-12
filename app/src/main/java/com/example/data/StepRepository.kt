@@ -28,6 +28,38 @@ class StepRepository(
         preferencesManager.stepLengthCm = cm
     }
 
+    fun getStepLengthPerson2(): Int {
+        return preferencesManager.stepLengthCmPerson2
+    }
+
+    fun saveStepLengthPerson2(cm: Int) {
+        preferencesManager.stepLengthCmPerson2 = cm
+    }
+
+    fun getSelectedPerson(): String {
+        return preferencesManager.selectedPerson
+    }
+
+    fun saveSelectedPerson(person: String) {
+        preferencesManager.selectedPerson = person
+    }
+
+    fun getPerson1Name(): String {
+        return preferencesManager.person1Name
+    }
+
+    fun savePerson1Name(name: String) {
+        preferencesManager.person1Name = name
+    }
+
+    fun getPerson2Name(): String {
+        return preferencesManager.person2Name
+    }
+
+    fun savePerson2Name(name: String) {
+        preferencesManager.person2Name = name
+    }
+
     fun isAutoBackupEnabled(): Boolean {
         return preferencesManager.isAutoBackupEnabled
     }

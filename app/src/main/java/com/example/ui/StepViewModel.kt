@@ -416,8 +416,46 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
         return true
     }
 
-    private val _stepLengthCm = MutableStateFlow(repository.getStepLength())
-    val stepLengthCm: StateFlow<Int> = _stepLengthCm.asStateFlow()
+    private val _selectedPerson = MutableStateFlow(repository.getSelectedPerson())
+    val selectedPerson: StateFlow<String> = _selectedPerson.asStateFlow()
+
+    private val _person1Name = MutableStateFlow(repository.getPerson1Name())
+    val person1Name: StateFlow<String> = _person1Name.asStateFlow()
+
+    private val _person2Name = MutableStateFlow(repository.getPerson2Name())
+    val person2Name: StateFlow<String> = _person2Name.asStateFlow()
+
+    private val _stepLengthCmPerson1 = MutableStateFlow(repository.getStepLength())
+    val stepLengthCmPerson1: StateFlow<Int> = _stepLengthCmPerson1.asStateFlow()
+
+    private val _stepLengthCmPerson2 = MutableStateFlow(repository.getStepLengthPerson2())
+    val stepLengthCmPerson2: StateFlow<Int> = _stepLengthCmPerson2.asStateFlow()
+
+    // Derived step length of the currently selected person
+    val stepLengthCm: StateFlow<Int> = combine(
+        _selectedPerson,
+        _stepLengthCmPerson1,
+        _stepLengthCmPerson2
+    ) { person, len1, len2 ->
+        if (person == "person_2") len2 else len1
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = repository.getStepLength()
+    )
+
+    // Derived step length of the inactive person
+    val inactiveStepLengthCm: StateFlow<Int> = combine(
+        _selectedPerson,
+        _stepLengthCmPerson1,
+        _stepLengthCmPerson2
+    ) { person, len1, len2 ->
+        if (person == "person_2") len1 else len2
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = repository.getStepLengthPerson2()
+    )
 
     private val _selectedWeekMonday = MutableStateFlow(DateUtils.getMondayOfWeek(DateUtils.getTodayString()))
     val selectedWeekMonday: StateFlow<String> = _selectedWeekMonday.asStateFlow()
@@ -425,19 +463,97 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
     private val _activePeriodType = MutableStateFlow(PeriodType.WEEK)
     val activePeriodType: StateFlow<PeriodType> = _activePeriodType.asStateFlow()
 
-    // Flow of all records from Database
-    val allEntries: StateFlow<List<StepEntry>> = repository.allEntries
+    // Flow of all records, filtered by active person, with standard keys
+    val allEntries: StateFlow<List<StepEntry>> = combine(
+        repository.allEntries,
+        _selectedPerson
+    ) { entries, person ->
+        if (person == "person_2") {
+            entries.filter { it.date.startsWith("person_2|") }
+                .map { it.copy(date = it.date.substringAfter("person_2|")) }
+        } else {
+            entries.filter { !it.date.startsWith("person_2|") && !it.date.startsWith("person_1|") }
+                .map {
+                    if (it.date.startsWith("person_1|")) {
+                        it.copy(date = it.date.substringAfter("person_1|"))
+                    } else {
+                        it
+                    }
+                }
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // Flow of all records, filtered by inactive person, with standard keys
+    val inactiveEntries: StateFlow<List<StepEntry>> = combine(
+        repository.allEntries,
+        _selectedPerson
+    ) { entries, person ->
+        val inactivePerson = if (person == "person_2") "person_1" else "person_2"
+        if (inactivePerson == "person_2") {
+            entries.filter { it.date.startsWith("person_2|") }
+                .map { it.copy(date = it.date.substringAfter("person_2|")) }
+        } else {
+            entries.filter { !it.date.startsWith("person_2|") && !it.date.startsWith("person_1|") }
+                .map {
+                    if (it.date.startsWith("person_1|")) {
+                        it.copy(date = it.date.substringAfter("person_1|"))
+                    } else {
+                        it
+                    }
+                }
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // Unfiltered raw entries for complete backup/restore across both persons
+    val rawAllEntries: StateFlow<List<StepEntry>> = repository.allEntries
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
 
+    private fun getDbKeyForDate(date: String, personId: String): String {
+        return if (personId == "person_2") {
+            "person_2|$date"
+        } else {
+            date
+        }
+    }
+
+    fun selectPerson(personId: String) {
+        if (personId == "person_1" || personId == "person_2") {
+            _selectedPerson.value = personId
+            repository.saveSelectedPerson(personId)
+        }
+    }
+
+    fun updatePerson1Name(name: String) {
+        val trimmed = name.trim()
+        val displayName = if (trimmed.isEmpty()) "Person 1" else trimmed
+        _person1Name.value = displayName
+        repository.savePerson1Name(displayName)
+    }
+
+    fun updatePerson2Name(name: String) {
+        val trimmed = name.trim()
+        val displayName = if (trimmed.isEmpty()) "Person 2" else trimmed
+        _person2Name.value = displayName
+        repository.savePerson2Name(displayName)
+    }
+
     // Reactive aggregate metrics computed automatically for week
     val weeklyStats: StateFlow<WeeklyStats> = combine(
-        repository.allEntries,
+        allEntries,
         _selectedWeekMonday,
-        _stepLengthCm
+        stepLengthCm
     ) { entries, monday, length ->
         val daysList = DateUtils.getDaysOfWeekList(monday)
         val entriesMap = entries.associateBy { it.date }
@@ -484,9 +600,110 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
 
     // Reactive aggregate metrics computed automatically for month
     val monthlyStats: StateFlow<MonthlyStats> = combine(
-        repository.allEntries,
+        allEntries,
         _selectedWeekMonday,
-        _stepLengthCm
+        stepLengthCm
+    ) { entries, monday, length ->
+        val daysList = DateUtils.getDaysOfMonthList(monday)
+        val entriesMap = entries.associateBy { it.date }
+
+        val daysData = daysList.map { dateStr ->
+            val entry = entriesMap[dateStr]
+            val steps = entry?.steps ?: 0
+            val distanceKm = (steps.toLong() * length) / 100000.0
+            DayStepData(
+                dateStr = dateStr,
+                label = DateUtils.getDayOfWeekLabel(dateStr),
+                steps = steps,
+                distanceKm = distanceKm,
+                remark = entry?.remark ?: ""
+            )
+        }
+
+        val loggedDays = daysData.filter { it.steps > 0 }
+        val trackedDaysCount = loggedDays.size
+        val totalSteps = daysData.sumOf { it.steps.toLong() }
+        val averageSteps = if (trackedDaysCount > 0) totalSteps.toDouble() / trackedDaysCount else 0.0
+        val totalDistanceKm = (totalSteps * length) / 100000.0
+        val monthLabel = DateUtils.getMonthLabel(monday)
+
+        MonthlyStats(
+            monthDateStr = if (daysList.isNotEmpty()) daysList.first() else monday,
+            monthLabel = monthLabel,
+            daysData = daysData,
+            trackedDaysCount = trackedDaysCount,
+            totalSteps = totalSteps,
+            averageSteps = averageSteps,
+            totalDistanceKm = totalDistanceKm
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = MonthlyStats(
+            monthDateStr = "",
+            monthLabel = "",
+            daysData = emptyList(),
+            trackedDaysCount = 0,
+            totalSteps = 0,
+            averageSteps = 0.0,
+            totalDistanceKm = 0.0
+        )
+    )
+
+    // Reactive aggregate metrics computed automatically for inactive person's week
+    val inactiveWeeklyStats: StateFlow<WeeklyStats> = combine(
+        inactiveEntries,
+        _selectedWeekMonday,
+        inactiveStepLengthCm
+    ) { entries, monday, length ->
+        val daysList = DateUtils.getDaysOfWeekList(monday)
+        val entriesMap = entries.associateBy { it.date }
+
+        val daysData = daysList.map { dateStr ->
+            val entry = entriesMap[dateStr]
+            val steps = entry?.steps ?: 0
+            val distanceKm = (steps.toLong() * length) / 100000.0
+            DayStepData(
+                dateStr = dateStr,
+                label = DateUtils.getDayOfWeekLabel(dateStr),
+                steps = steps,
+                distanceKm = distanceKm,
+                remark = entry?.remark ?: ""
+            )
+        }
+
+        val loggedDays = daysData.filter { it.steps > 0 }
+        val trackedDaysCount = loggedDays.size
+        val totalSteps = daysData.sumOf { it.steps.toLong() }
+        val averageSteps = if (trackedDaysCount > 0) totalSteps.toDouble() / trackedDaysCount else 0.0
+        val totalDistanceKm = (totalSteps * length) / 100000.0
+
+        WeeklyStats(
+            mondayDateStr = monday,
+            daysData = daysData,
+            trackedDaysCount = trackedDaysCount,
+            totalSteps = totalSteps,
+            averageSteps = averageSteps,
+            totalDistanceKm = totalDistanceKm
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = WeeklyStats(
+            mondayDateStr = DateUtils.getMondayOfWeek(DateUtils.getTodayString()),
+            daysData = emptyList(),
+            trackedDaysCount = 0,
+            totalSteps = 0,
+            averageSteps = 0.0,
+            totalDistanceKm = 0.0
+        )
+    )
+
+    // Reactive aggregate metrics computed automatically for inactive person's month
+    val inactiveMonthlyStats: StateFlow<MonthlyStats> = combine(
+        inactiveEntries,
+        _selectedWeekMonday,
+        inactiveStepLengthCm
     ) { entries, monday, length ->
         val daysList = DateUtils.getDaysOfMonthList(monday)
         val entriesMap = entries.associateBy { it.date }
@@ -560,20 +777,41 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
 
     fun updateStepLength(cm: Int) {
         if (cm in 1..300) {
-            _stepLengthCm.value = cm
+            if (_selectedPerson.value == "person_2") {
+                _stepLengthCmPerson2.value = cm
+                repository.saveStepLengthPerson2(cm)
+            } else {
+                _stepLengthCmPerson1.value = cm
+                repository.saveStepLength(cm)
+            }
+        }
+    }
+
+    fun updateStepLengthPerson1(cm: Int) {
+        if (cm in 1..300) {
+            _stepLengthCmPerson1.value = cm
             repository.saveStepLength(cm)
+        }
+    }
+
+    fun updateStepLengthPerson2(cm: Int) {
+        if (cm in 1..300) {
+            _stepLengthCmPerson2.value = cm
+            repository.saveStepLengthPerson2(cm)
         }
     }
 
     fun saveSteps(date: String, steps: Int, remark: String = "") {
         viewModelScope.launch {
-            repository.insertOrUpdate(date, steps, remark)
+            val dbKey = getDbKeyForDate(date, _selectedPerson.value)
+            repository.insertOrUpdate(dbKey, steps, remark)
         }
     }
 
     fun deleteSteps(date: String) {
         viewModelScope.launch {
-            repository.deleteByDate(date)
+            val dbKey = getDbKeyForDate(date, _selectedPerson.value)
+            repository.deleteByDate(dbKey)
         }
     }
 
@@ -584,7 +822,8 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
             val currentSteps = todayEntry?.steps ?: 0
             val currentRemark = todayEntry?.remark ?: ""
             val newSteps = currentSteps + amount
-            repository.insertOrUpdate(today, newSteps, currentRemark)
+            val dbKey = getDbKeyForDate(today, _selectedPerson.value)
+            repository.insertOrUpdate(dbKey, newSteps, currentRemark)
         }
     }
 
@@ -596,7 +835,8 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
                 val randomSteps = listOf(6200, 8450, 7120, 10300, 5800, 9150, 11400)
                 days.forEachIndexed { index, dateStr ->
                     val steps = randomSteps.getOrElse(index) { 7500 }
-                    repository.insertOrUpdate(dateStr, steps)
+                    val dbKey = getDbKeyForDate(dateStr, _selectedPerson.value)
+                    repository.insertOrUpdate(dbKey, steps)
                 }
                 Toast.makeText(context, "Muster-Woche erfolgreich eingetragen!", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
@@ -717,7 +957,8 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
                 }
                 
                 importedEntries.forEach { entry ->
-                    repository.insertOrUpdate(entry.date, entry.steps, entry.remark)
+                    val dbKey = getDbKeyForDate(entry.date, _selectedPerson.value)
+                    repository.insertOrUpdate(dbKey, entry.steps, entry.remark)
                 }
                 
                 Toast.makeText(context, "${importedEntries.size} Einträge erfolgreich wiederhergestellt!", Toast.LENGTH_LONG).show()

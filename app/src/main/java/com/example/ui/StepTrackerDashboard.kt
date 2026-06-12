@@ -74,10 +74,18 @@ fun StepTrackerDashboard(
     val context = LocalContext.current
     val weeklyStats by viewModel.weeklyStats.collectAsStateWithLifecycle()
     val monthlyStats by viewModel.monthlyStats.collectAsStateWithLifecycle()
+    val inactiveWeeklyStats by viewModel.inactiveWeeklyStats.collectAsStateWithLifecycle()
+    val inactiveMonthlyStats by viewModel.inactiveMonthlyStats.collectAsStateWithLifecycle()
     val activePeriodType by viewModel.activePeriodType.collectAsStateWithLifecycle()
     val stepLengthCm by viewModel.stepLengthCm.collectAsStateWithLifecycle()
     val selectedWeekMonday by viewModel.selectedWeekMonday.collectAsStateWithLifecycle()
     val allEntries by viewModel.allEntries.collectAsStateWithLifecycle()
+    val inactiveEntries by viewModel.inactiveEntries.collectAsStateWithLifecycle()
+    val selectedPerson by viewModel.selectedPerson.collectAsStateWithLifecycle()
+    val person1Name by viewModel.person1Name.collectAsStateWithLifecycle()
+    val person2Name by viewModel.person2Name.collectAsStateWithLifecycle()
+    val stepLengthCmPerson1 by viewModel.stepLengthCmPerson1.collectAsStateWithLifecycle()
+    val stepLengthCmPerson2 by viewModel.stepLengthCmPerson2.collectAsStateWithLifecycle()
 
     // Dialog state
     var showAddDialog by remember { mutableStateOf(false) }
@@ -116,6 +124,7 @@ fun StepTrackerDashboard(
     // Selected day state (for detailing the tapped bar)
     val todayStr = remember { DateUtils.getTodayString() }
     val hasTodayEntry = allEntries.any { it.date == todayStr }
+    val activePersonLabel = if (selectedPerson == "person_2") person2Name else person1Name
     val currentPeriodDays = if (activePeriodType == PeriodType.WEEK) weeklyStats.daysData else monthlyStats.daysData
 
     var selectedDayDateStr by remember(activePeriodType, weeklyStats.mondayDateStr, monthlyStats.monthLabel) { 
@@ -175,7 +184,7 @@ fun StepTrackerDashboard(
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
                     ) {
                         Text(
-                            text = if (showStepLengthConfig) "Einstellungen" else if (activeTab == 0) "Schrittzähler" else "Eintrag-Historie",
+                            text = if (showStepLengthConfig) "Einstellungen" else if (activeTab == 0) "Schrittzähler" else "Historie (${if (selectedPerson == "person_2") person2Name else person1Name})",
                             fontWeight = FontWeight.Bold,
                             fontSize = 24.sp,
                             letterSpacing = (-0.5).sp,
@@ -399,9 +408,15 @@ fun StepTrackerDashboard(
                             .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        StepLengthConfigCard(
-                            stepLengthCm = stepLengthCm,
-                            onStepLengthChanged = { viewModel.updateStepLength(it) }
+                        PersonSettingsCard(
+                            person1Name = person1Name,
+                            onPerson1NameChanged = { viewModel.updatePerson1Name(it) },
+                            stepLengthCmPerson1 = stepLengthCmPerson1,
+                            onStepLengthCmPerson1Changed = { viewModel.updateStepLengthPerson1(it) },
+                            person2Name = person2Name,
+                            onPerson2NameChanged = { viewModel.updatePerson2Name(it) },
+                            stepLengthCmPerson2 = stepLengthCmPerson2,
+                            onStepLengthCmPerson2Changed = { viewModel.updateStepLengthPerson2(it) }
                         )
 
                         LocalBackupCard(
@@ -410,19 +425,32 @@ fun StepTrackerDashboard(
                     }
                 }
             } else {
+                item {
+                    PersonSelectorRow(
+                        selectedPerson = selectedPerson,
+                        person1Name = person1Name,
+                        person2Name = person2Name,
+                        onPersonSelected = { viewModel.selectPerson(it) }
+                    )
+                }
+
                 if (activeTab == 0) {
 
-            // TODAY LOGGING CTA CARD: Gorgeous banner styled in bg-[#EADDFF] (container) with light-purple button
+            // TODAY LOGGING CTA CARD: Gorgeous banner styled dynamically based on active person's today entry
             item {
+                val cardBg = if (hasTodayEntry) Color(0xFFEADDFF) else Color(0xFFF3EDF7)
+                val cardBorderColor = if (hasTodayEntry) Color(0xFFCAC4D0).copy(alpha = 0.5f) else Color(0xFF6750A4).copy(alpha = 0.5f)
+                val cardBorderWidth = if (hasTodayEntry) 1.dp else 1.5.dp
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("today_quick_cta_card"),
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFFEADDFF)
+                        containerColor = cardBg
                     ),
-                    border = BorderStroke(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.5f))
+                    border = BorderStroke(cardBorderWidth, cardBorderColor)
                 ) {
                     Column(
                         modifier = Modifier
@@ -438,14 +466,19 @@ fun StepTrackerDashboard(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "HEUTE ERFASSEN",
+                                    text = if (hasTodayEntry) "SCHRITTVERLAUF HEUTE AKTUELL" else "SCHRITTVERLAUF SCHNELL ERFASSEN",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF21005D),
                                     letterSpacing = 1.sp
                                 )
                                 Text(
-                                    text = if (hasTodayEntry) "Schrittverlauf aktuell" else "Schrittverlauf schnell ergänzen",
+                                    text = if (hasTodayEntry) {
+                                        val todaySteps = allEntries.find { it.date == todayStr }?.steps ?: 0
+                                        "$activePersonLabel hat heute bereits $todaySteps Schritte!"
+                                    } else {
+                                        "Heute fehlen noch Einträge für $activePersonLabel."
+                                    },
                                     fontSize = 13.sp,
                                     color = Color(0xFF49454F),
                                     fontWeight = FontWeight.Medium
@@ -496,13 +529,18 @@ fun StepTrackerDashboard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Schnell:",
+                                text = "Eintragen:",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF49454F),
                                 modifier = Modifier.padding(end = 4.dp)
                             )
-                            listOf(1000 to "+1.000", 3000 to "+3.000", 5000 to "+5.000").forEach { (amount, textStr) ->
+                            val presets = if (hasTodayEntry) {
+                                listOf(1000 to "+1.000", 3000 to "+3.000", 5000 to "+5.000")
+                            } else {
+                                listOf(3000 to "3.000", 6000 to "6.000", 10000 to "10.000")
+                            }
+                            presets.forEach { (amount, textStr) ->
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = Color.White,
@@ -526,7 +564,38 @@ fun StepTrackerDashboard(
                             }
                         }
 
-
+                        if (!hasTodayEntry) {
+                            HorizontalDivider(color = Color(0xFFCAC4D0).copy(alpha = 0.3f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Erfassung testen?",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF49454F),
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Button(
+                                    onClick = { viewModel.generateDemoWeekData(context) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF6750A4),
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.height(30.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp).padding(end = 2.dp)
+                                    )
+                                    Text("Muster-Woche eintragen", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -628,106 +697,165 @@ fun StepTrackerDashboard(
                             }
                         }
 
-                        if (activePeriodType == PeriodType.WEEK) {
-                            WeeklyBarGraph(
-                                daysData = weeklyStats.daysData,
-                                selectedDateStr = selectedDayDateStr,
-                                activelyClickedDateStr = activelyClickedDateStr,
-                                onDaySelected = {
-                                    selectedDayDateStr = it
-                                    activelyClickedDateStr = if (activelyClickedDateStr == it) null else it
-                                },
-                                onSwipePrevWeek = { viewModel.navigateToPreviousWeek() },
-                                onSwipeNextWeek = { viewModel.navigateToNextWeek() }
-                            )
-                        } else {
-                            MonthlyBarGraph(
-                                daysData = monthlyStats.daysData,
-                                selectedDateStr = selectedDayDateStr,
-                                activelyClickedDateStr = activelyClickedDateStr,
-                                onDaySelected = {
-                                    selectedDayDateStr = it
-                                    activelyClickedDateStr = if (activelyClickedDateStr == it) null else it
-                                },
-                                onSwipePrevMonth = { viewModel.navigateToPreviousMonth() },
-                                onSwipeNextMonth = { viewModel.navigateToNextMonth() }
-                            )
-                        }
+                        val hasAnyEntries = allEntries.isNotEmpty() || inactiveEntries.isNotEmpty()
 
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Selected Day Quick details & Quick edit action
-                        selectedDayData?.let { day ->
-                            val displayDate = DateUtils.formatGermanDate(day.dateStr)
-                            val dayLabelLong = when (day.label) {
-                                "Mo" -> "Montag"
-                                "Di" -> "Dienstag"
-                                "Mi" -> "Mittwoch"
-                                "Do" -> "Donnerstag"
-                                "Fr" -> "Freitag"
-                                "Sa" -> "Samstag"
-                                "So" -> "Sonntag"
-                                else -> day.label
+                        if (hasAnyEntries) {
+                            if (activePeriodType == PeriodType.WEEK) {
+                                WeeklyBarGraph(
+                                    daysData = weeklyStats.daysData,
+                                    inactiveDaysData = inactiveWeeklyStats.daysData,
+                                    selectedDateStr = selectedDayDateStr,
+                                    activelyClickedDateStr = activelyClickedDateStr,
+                                    onDaySelected = {
+                                        selectedDayDateStr = it
+                                        activelyClickedDateStr = if (activelyClickedDateStr == it) null else it
+                                    },
+                                    onSwipePrevWeek = { viewModel.navigateToPreviousWeek() },
+                                    onSwipeNextWeek = { viewModel.navigateToNextWeek() }
+                                )
+                            } else {
+                                MonthlyBarGraph(
+                                    daysData = monthlyStats.daysData,
+                                    inactiveDaysData = inactiveMonthlyStats.daysData,
+                                    selectedDateStr = selectedDayDateStr,
+                                    activelyClickedDateStr = activelyClickedDateStr,
+                                    onDaySelected = {
+                                        selectedDayDateStr = it
+                                        activelyClickedDateStr = if (activelyClickedDateStr == it) null else it
+                                    },
+                                    onSwipePrevMonth = { viewModel.navigateToPreviousMonth() },
+                                    onSwipeNextMonth = { viewModel.navigateToNextMonth() }
+                                )
                             }
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0xFFEADDFF).copy(alpha = 0.4f))
-                                    .border(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.6f), RoundedCornerShape(16.dp))
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "$dayLabelLong, $displayDate",
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color(0xFF1D1B20)
-                                    )
-                                    Text(
-                                        text = if (day.steps > 0) {
-                                            "%, d Schritte • %.2f km".format(Locale.GERMANY, day.steps, day.distanceKm)
-                                        } else {
-                                            "Keine Schritte erfasst"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color(0xFF49454F)
-                                    )
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Selected Day Quick details & Quick edit action
+                            selectedDayData?.let { day ->
+                                val displayDate = DateUtils.formatGermanDate(day.dateStr)
+                                val dayLabelLong = when (day.label) {
+                                    "Mo" -> "Montag"
+                                    "Di" -> "Dienstag"
+                                    "Mi" -> "Mittwoch"
+                                    "Do" -> "Donnerstag"
+                                    "Fr" -> "Freitag"
+                                    "Sa" -> "Samstag"
+                                    "So" -> "Sonntag"
+                                    else -> day.label
                                 }
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    IconButton(
-                                        onClick = {
-                                            dialogInitialDate = day.dateStr
-                                            dialogInitialSteps = if (day.steps > 0) day.steps.toString() else ""
-                                            showAddDialog = true
-                                        },
-                                        modifier = Modifier.size(36.dp).testTag("edit_day_button_${day.label}")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Schritte bearbeiten",
-                                            tint = Color(0xFF6750A4),
-                                            modifier = Modifier.size(18.dp)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color(0xFFEADDFF).copy(alpha = 0.4f))
+                                        .border(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "$dayLabelLong, $displayDate",
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color(0xFF1D1B20)
+                                        )
+                                        Text(
+                                            text = if (day.steps > 0) {
+                                                "%, d Schritte • %.2f km".format(Locale.GERMANY, day.steps, day.distanceKm)
+                                            } else {
+                                                "Keine Schritte erfasst"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFF49454F)
                                         )
                                     }
 
-                                    if (day.steps > 0) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         IconButton(
-                                            onClick = { viewModel.deleteSteps(day.dateStr) },
-                                            modifier = Modifier.size(36.dp).testTag("delete_day_button_${day.label}")
+                                            onClick = {
+                                                dialogInitialDate = day.dateStr
+                                                dialogInitialSteps = if (day.steps > 0) day.steps.toString() else ""
+                                                showAddDialog = true
+                                            },
+                                            modifier = Modifier.size(36.dp).testTag("edit_day_button_${day.label}")
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Schritte löschen",
-                                                tint = MaterialTheme.colorScheme.error,
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Schritte bearbeiten",
+                                                tint = Color(0xFF6750A4),
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         }
+
+                                        if (day.steps > 0) {
+                                            IconButton(
+                                                onClick = { viewModel.deleteSteps(day.dateStr) },
+                                                modifier = Modifier.size(36.dp).testTag("delete_day_button_${day.label}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Schritte löschen",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Onboarding / Empty state representation when there are no entries for this person
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.padding(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DirectionsWalk,
+                                        contentDescription = null,
+                                        tint = Color(0xFF6750A4).copy(alpha = 0.4f),
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Text(
+                                        text = "Kein Schrittverlauf vorhanden",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1D1B20),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Text(
+                                        text = "Für $activePersonLabel sind bisher noch keine Schritte dokumentiert. Klicke oben auf '+ Schritte', um deinen Verlauf zu starten, oder lade testweise eine Muster-Woche!",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF49454F),
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 16.sp
+                                    )
+
+                                    Button(
+                                        onClick = { viewModel.generateDemoWeekData(context) },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF6750A4),
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Muster-Woche eintragen", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -837,7 +965,7 @@ fun StepTrackerDashboard(
                 if (visibleHistoryDays.isNotEmpty()) {
                     item {
                         Text(
-                            text = "Eintrag-Historie",
+                            text = "Historie (${if (selectedPerson == "person_2") person2Name else person1Name})",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF1D1B20),
@@ -874,7 +1002,7 @@ fun StepTrackerDashboard(
                 } else if (historyDays.isNotEmpty()) {
                     item {
                         Text(
-                            text = "Eintrag-Historie",
+                            text = "Historie (${if (selectedPerson == "person_2") person2Name else person1Name})",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF1D1B20),
@@ -889,7 +1017,7 @@ fun StepTrackerDashboard(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Keine Einträge im aktuellen Zeitraum geladen.",
+                                text = "Keine Einträge für ${if (selectedPerson == "person_2") person2Name else person1Name} im aktuellen Zeitraum geladen.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFF49454F)
                             )
@@ -904,7 +1032,7 @@ fun StepTrackerDashboard(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Keine Einträge vorhanden.",
+                                text = "Keine Einträge für ${if (selectedPerson == "person_2") person2Name else person1Name} vorhanden.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFF49454F)
                             )
@@ -1010,115 +1138,313 @@ fun StepTrackerDashboard(
 }
 
 @Composable
-fun StepLengthConfigCard(
-    stepLengthCm: Int,
-    onStepLengthChanged: (Int) -> Unit
+fun PersonSelectorRow(
+    selectedPerson: String,
+    person1Name: String,
+    person2Name: String,
+    onPersonSelected: (String) -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("step_length_card"),
+            .testTag("person_selector_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFF3EDF7)
+        ),
+        border = BorderStroke(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "AKTIVER BENUTZER",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF6750A4),
+                letterSpacing = 1.sp
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Person 1 Segment
+                val isP1 = selectedPerson == "person_1"
+                Button(
+                    onClick = { onPersonSelected("person_1") },
+                    modifier = Modifier.weight(1f).height(44.dp).testTag("select_person_1"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isP1) Color(0xFFEADDFF) else Color.Transparent,
+                        contentColor = if (isP1) Color(0xFF21005D) else Color(0xFF49454F)
+                    ),
+                    border = if (isP1) null else BorderStroke(1.dp, Color(0xFFCAC4D0)),
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isP1) Icons.Default.CheckCircle else Icons.Default.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = person1Name,
+                            fontWeight = if (isP1) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                // Person 2 Segment
+                val isP2 = selectedPerson == "person_2"
+                Button(
+                    onClick = { onPersonSelected("person_2") },
+                    modifier = Modifier.weight(1f).height(44.dp).testTag("select_person_2"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isP2) Color(0xFFEADDFF) else Color.Transparent,
+                        contentColor = if (isP2) Color(0xFF21005D) else Color(0xFF49454F)
+                    ),
+                    border = if (isP2) null else BorderStroke(1.dp, Color(0xFFCAC4D0)),
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isP2) Icons.Default.CheckCircle else Icons.Default.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = person2Name,
+                            fontWeight = if (isP2) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PersonSettingsCard(
+    person1Name: String,
+    onPerson1NameChanged: (String) -> Unit,
+    stepLengthCmPerson1: Int,
+    onStepLengthCmPerson1Changed: (Int) -> Unit,
+    person2Name: String,
+    onPerson2NameChanged: (String) -> Unit,
+    stepLengthCmPerson2: Int,
+    onStepLengthCmPerson2Changed: (Int) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("person_settings_card"),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFFF3EDF7) // Tailwind layout gray-purple
+            containerColor = Color(0xFFF3EDF7)
         ),
         border = BorderStroke(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.6f))
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Header
             Row(
-                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = null,
-                        tint = Color(0xFF6750A4),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = "Voreingestellte Schrittlänge",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1D1B20)
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF6750A4),
-                    contentColor = Color.White
-                ) {
-                    Text(
-                        text = "$stepLengthCm cm",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.People,
+                    contentDescription = null,
+                    tint = Color(0xFF6750A4),
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "Profile & Schrittlängen",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1D1B20)
+                )
             }
 
             Text(
-                text = "Wird zum automatischen Berechnen deiner zurückgelegten Distanz in Kilometern verwendet.",
+                text = "Passe die Namen der beiden Personen und deren individuelle Schrittlänge an.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF49454F)
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                IconButton(
-                    onClick = { onStepLengthChanged((stepLengthCm - 1).coerceAtLeast(30)) },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color(0xFFEADDFF)
-                    ),
-                    modifier = Modifier.size(36.dp).testTag("step_length_decrease")
+            HorizontalDivider(color = Color(0xFFCAC4D0).copy(alpha = 0.5f))
+
+            // -- PERSON 1 SECTION --
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Remove,
-                        contentDescription = "Verringern",
-                        tint = Color(0xFF21005D),
-                        modifier = Modifier.size(16.dp)
+                    Text(
+                        text = "Person 1 (Standard)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6750A4)
                     )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFEADDFF)
+                    ) {
+                        Text(
+                            text = "$stepLengthCmPerson1 cm",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF21005D)
+                        )
+                    }
                 }
 
-                Slider(
-                    value = stepLengthCm.toFloat(),
-                    onValueChange = { onStepLengthChanged(it.toInt()) },
-                    valueRange = 30f..150f,
-                    steps = 120,
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF6750A4),
-                        activeTrackColor = Color(0xFF6750A4),
-                        inactiveTrackColor = Color(0xFF6750A4).copy(alpha = 0.2f)
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("step_length_slider")
+                OutlinedTextField(
+                    value = person1Name,
+                    onValueChange = onPerson1NameChanged,
+                    label = { Text("Name Person 1") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("edit_p1_name"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFF1D1B20),
+                        unfocusedTextColor = Color(0xFF1D1B20),
+                        focusedBorderColor = Color(0xFF6750A4),
+                        focusedLabelColor = Color(0xFF6750A4),
+                        unfocusedLabelColor = Color(0xFF49454F),
+                        unfocusedBorderColor = Color(0xFFCAC4D0)
+                    )
                 )
 
-                IconButton(
-                    onClick = { onStepLengthChanged((stepLengthCm + 1).coerceAtMost(150)) },
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color(0xFFEADDFF)
-                    ),
-                    modifier = Modifier.size(36.dp).testTag("step_length_increase")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Erhöhen",
-                        tint = Color(0xFF21005D),
-                        modifier = Modifier.size(16.dp)
+                    IconButton(
+                        onClick = { onStepLengthCmPerson1Changed((stepLengthCmPerson1 - 1).coerceAtLeast(30)) },
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFEADDFF)),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Remove, contentDescription = "Verringern", tint = Color(0xFF21005D), modifier = Modifier.size(16.dp))
+                    }
+
+                    Slider(
+                        value = stepLengthCmPerson1.toFloat(),
+                        onValueChange = { onStepLengthCmPerson1Changed(it.toInt()) },
+                        valueRange = 30f..150f,
+                        steps = 120,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF6750A4),
+                            activeTrackColor = Color(0xFF6750A4)
+                        ),
+                        modifier = Modifier.weight(1f)
                     )
+
+                    IconButton(
+                        onClick = { onStepLengthCmPerson1Changed((stepLengthCmPerson1 + 1).coerceAtMost(150)) },
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFEADDFF)),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "Erhöhen", tint = Color(0xFF21005D), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFFCAC4D0).copy(alpha = 0.5f))
+
+            // -- PERSON 2 SECTION --
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Person 2",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6750A4)
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFEADDFF)
+                    ) {
+                        Text(
+                            text = "$stepLengthCmPerson2 cm",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF21005D)
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = person2Name,
+                    onValueChange = onPerson2NameChanged,
+                    label = { Text("Name Person 2") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("edit_p2_name"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFF1D1B20),
+                        unfocusedTextColor = Color(0xFF1D1B20),
+                        focusedBorderColor = Color(0xFF6750A4),
+                        focusedLabelColor = Color(0xFF6750A4),
+                        unfocusedLabelColor = Color(0xFF49454F),
+                        unfocusedBorderColor = Color(0xFFCAC4D0)
+                    )
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(
+                        onClick = { onStepLengthCmPerson2Changed((stepLengthCmPerson2 - 1).coerceAtLeast(30)) },
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFEADDFF)),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Remove, contentDescription = "Verringern", tint = Color(0xFF21005D), modifier = Modifier.size(16.dp))
+                    }
+
+                    Slider(
+                        value = stepLengthCmPerson2.toFloat(),
+                        onValueChange = { onStepLengthCmPerson2Changed(it.toInt()) },
+                        valueRange = 30f..150f,
+                        steps = 120,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF6750A4),
+                            activeTrackColor = Color(0xFF6750A4)
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    IconButton(
+                        onClick = { onStepLengthCmPerson2Changed((stepLengthCmPerson2 + 1).coerceAtMost(150)) },
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFEADDFF)),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "Erhöhen", tint = Color(0xFF21005D), modifier = Modifier.size(16.dp))
+                    }
                 }
             }
         }
@@ -1222,13 +1548,16 @@ fun PeriodSelectionHeader(
 @Composable
 fun MonthlyBarGraph(
     daysData: List<DayStepData>,
+    inactiveDaysData: List<DayStepData> = emptyList(),
     selectedDateStr: String,
     activelyClickedDateStr: String?,
     onDaySelected: (String) -> Unit,
     onSwipePrevMonth: () -> Unit,
     onSwipeNextMonth: () -> Unit
 ) {
-    val maxSteps = daysData.maxOfOrNull { it.steps } ?: 0
+    val maxActive = daysData.maxOfOrNull { it.steps } ?: 0
+    val maxInactive = inactiveDaysData.maxOfOrNull { it.steps } ?: 0
+    val maxSteps = maxOf(maxActive, maxInactive)
     val maxStepsTarget = 10000f
     val scaleMax = if (maxSteps > maxStepsTarget) maxSteps.toFloat() else maxStepsTarget
 
@@ -1265,11 +1594,20 @@ fun MonthlyBarGraph(
             daysData.forEach { day ->
                 val isSelected = day.dateStr == selectedDateStr
                 val isClicked = day.dateStr == activelyClickedDateStr
+
+                val inactiveDay = inactiveDaysData.find { it.dateStr == day.dateStr }
+                val inactiveSteps = inactiveDay?.steps ?: 0
                 
                 val targetFraction = day.steps.toFloat() / scaleMax
                 val animatedFraction by animateFloatAsState(
                     targetValue = targetFraction.coerceIn(0.02f, 1f),
                     label = "bar_height"
+                )
+
+                val inactiveTargetFraction = inactiveSteps.toFloat() / scaleMax
+                val animatedInactiveFraction by animateFloatAsState(
+                    targetValue = inactiveTargetFraction.coerceIn(0.02f, 1f),
+                    label = "inactive_bar_height"
                 )
 
                 val animatedBarColor by animateColorAsState(
@@ -1299,6 +1637,26 @@ fun MonthlyBarGraph(
                             .fillMaxWidth(),
                         contentAlignment = Alignment.BottomCenter
                     ) {
+                        // Inactive Bar (drawn behind and offset)
+                        if (inactiveSteps > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.75f)
+                                    .fillMaxHeight(animatedInactiveFraction.coerceIn(0.02f, 1f))
+                                    .offset(x = (-2).dp)
+                                    .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0xFFCCC9D2),
+                                                Color(0xFFE5E2EB)
+                                            )
+                                        )
+                                    )
+                            )
+                        }
+
+                        // Active Bar
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(0.75f)
@@ -1341,7 +1699,7 @@ fun MonthlyBarGraph(
 
                     Column(
                         modifier = Modifier
-                            .height(28.dp)
+                            .height(38.dp)
                             .fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Top
@@ -1369,7 +1727,7 @@ fun MonthlyBarGraph(
                                 fontSize = 8.5.sp,
                                 fontWeight = FontWeight.Normal,
                                 color = Color(0xFF79747E)
-                            )
+                              )
                         } else {
                             Box(
                                 modifier = Modifier
@@ -1380,14 +1738,27 @@ fun MonthlyBarGraph(
                             )
                         }
 
-                        if (day.remark.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(1.dp))
-                            Icon(
-                                imageVector = Icons.Default.ChatBubble,
-                                contentDescription = "Notiz vorhanden",
-                                tint = Color(0xFF6750A4),
-                                modifier = Modifier.size(7.dp)
-                            )
+                        Row(
+                            modifier = Modifier.padding(top = 1.dp).height(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(1.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (day.remark.isNotEmpty()) {
+                                Icon(
+                                    imageVector = Icons.Default.ChatBubble,
+                                    contentDescription = "Notiz von aktiver Person vorhanden",
+                                    tint = Color(0xFF6750A4),
+                                    modifier = Modifier.size(7.dp)
+                                )
+                            }
+                            if (inactiveDay != null && inactiveDay.remark.isNotEmpty()) {
+                                Icon(
+                                    imageVector = Icons.Default.ChatBubble,
+                                    contentDescription = "Notiz von inaktiver Person vorhanden",
+                                    tint = Color(0xFFCCC9D2),
+                                    modifier = Modifier.size(7.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1399,13 +1770,16 @@ fun MonthlyBarGraph(
 @Composable
 fun WeeklyBarGraph(
     daysData: List<DayStepData>,
+    inactiveDaysData: List<DayStepData> = emptyList(),
     selectedDateStr: String,
     activelyClickedDateStr: String?,
     onDaySelected: (String) -> Unit,
     onSwipePrevWeek: () -> Unit,
     onSwipeNextWeek: () -> Unit
 ) {
-    val maxSteps = daysData.maxOfOrNull { it.steps } ?: 0
+    val maxActive = daysData.maxOfOrNull { it.steps } ?: 0
+    val maxInactive = inactiveDaysData.maxOfOrNull { it.steps } ?: 0
+    val maxSteps = maxOf(maxActive, maxInactive)
     val maxStepsTarget = 10000f
     val scaleMax = if (maxSteps > maxStepsTarget) maxSteps.toFloat() else maxStepsTarget
 
@@ -1438,12 +1812,21 @@ fun WeeklyBarGraph(
         daysData.forEach { day ->
             val isSelected = day.dateStr == selectedDateStr
             val isClicked = day.dateStr == activelyClickedDateStr
+
+            val inactiveDay = inactiveDaysData.find { it.dateStr == day.dateStr }
+            val inactiveSteps = inactiveDay?.steps ?: 0
             
-            // Animated height fraction
+            // Animated height fractions
             val targetFraction = day.steps.toFloat() / scaleMax
             val animatedFraction by animateFloatAsState(
                 targetValue = targetFraction.coerceIn(0.02f, 1f),
                 label = "bar_height"
+            )
+
+            val inactiveTargetFraction = inactiveSteps.toFloat() / scaleMax
+            val animatedInactiveFraction by animateFloatAsState(
+                targetValue = inactiveTargetFraction.coerceIn(0.02f, 1f),
+                label = "inactive_bar_height"
             )
 
             // High Density style colors
@@ -1497,7 +1880,26 @@ fun WeeklyBarGraph(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.BottomCenter
                 ) {
-                    // Bar
+                    // Inactive Bar (drawn behind and offset)
+                    if (inactiveSteps > 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.55f)
+                                .fillMaxHeight(animatedInactiveFraction.coerceIn(0.02f, 1f))
+                                .offset(x = (-4).dp)
+                                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFFCCC9D2),
+                                            Color(0xFFE5E2EB)
+                                        )
+                                    )
+                                )
+                        )
+                    }
+
+                    // Bar (Active person)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(0.55f)
@@ -1553,15 +1955,24 @@ fun WeeklyBarGraph(
                     color = if (isSelected) Color(0xFF6750A4) else Color(0xFF49454F).copy(alpha = 0.7f)
                 )
 
-                Box(
-                    modifier = Modifier.height(12.dp),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.height(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (day.remark.isNotEmpty()) {
                         Icon(
                             imageVector = Icons.Default.ChatBubble,
-                            contentDescription = "Notiz vorhanden",
+                            contentDescription = "Notiz von aktiver Person vorhanden",
                             tint = Color(0xFF6750A4),
+                            modifier = Modifier.size(9.dp)
+                        )
+                    }
+                    if (inactiveDay != null && inactiveDay.remark.isNotEmpty()) {
+                        Icon(
+                            imageVector = Icons.Default.ChatBubble,
+                            contentDescription = "Notiz von inaktiver Person vorhanden",
+                            tint = Color(0xFFCCC9D2),
                             modifier = Modifier.size(9.dp)
                         )
                     }
