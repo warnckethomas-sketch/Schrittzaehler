@@ -44,6 +44,32 @@ android {
             System.err.println("Failed to restore debug.keystore: ${e.message}")
           }
         }
+        
+        // If restoring failed or base64 file didn't exist, generate a fresh debug keystore
+        if (!keystoreFile.exists()) {
+          try {
+            val process = ProcessBuilder(
+              "keytool", "-genkey", "-v",
+              "-keystore", keystoreFile.absolutePath,
+              "-storepass", "android",
+              "-alias", "androiddebugkey",
+              "-keypass", "android",
+              "-keyalg", "RSA",
+              "-keysize", "2048",
+              "-validity", "10000",
+              "-dname", "CN=Android Debug,O=Android,C=US"
+            ).start()
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+              println("Successfully generated a new debug.keystore via keytool fallback.")
+            } else {
+              val errorText = process.errorStream.bufferedReader().readText()
+              System.err.println("Failed to generate debug.keystore, keytool exit code: $exitCode. Error: $errorText")
+            }
+          } catch (e: Exception) {
+            System.err.println("Failed to run keytool to generate debug.keystore: ${e.message}")
+          }
+        }
       }
       storeFile = keystoreFile
       storePassword = "android"
