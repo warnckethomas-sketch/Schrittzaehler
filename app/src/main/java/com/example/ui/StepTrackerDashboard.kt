@@ -94,6 +94,7 @@ fun StepTrackerDashboard(
     var dialogInitialRemark by remember { mutableStateOf("") }
     var showStepLengthConfig by remember { mutableStateOf(false) }
     var showExitConfirmationDialog by remember { mutableStateOf(false) }
+    var showPersonDropdown by remember { mutableStateOf(false) }
     var activeTab by remember { mutableStateOf(0) } // 0 = Dashboard, 1 = Historie & Backup
     var visibleMonthsLimit by remember { mutableStateOf(1) }
     val listState = rememberLazyListState()
@@ -184,7 +185,7 @@ fun StepTrackerDashboard(
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
                     ) {
                         Text(
-                            text = if (showStepLengthConfig) "Einstellungen" else if (activeTab == 0) "Schrittzähler" else "Historie (${if (selectedPerson == "person_2") person2Name else person1Name})",
+                            text = if (showStepLengthConfig) "Einstellungen" else if (activeTab == 0) "Schrittzähler" else "Historie",
                             fontWeight = FontWeight.Bold,
                             fontSize = 24.sp,
                             letterSpacing = (-0.5).sp,
@@ -300,7 +301,7 @@ fun StepTrackerDashboard(
 
                         IconButton(
                             onClick = {
-                                printMonthlyReport(context, monthlyStats.monthLabel, monthlyStats, stepLengthCm)
+                                printMonthlyReport(context, monthlyStats.monthLabel, monthlyStats, stepLengthCm, activePersonLabel)
                             },
                             modifier = Modifier
                                 .size(40.dp)
@@ -314,6 +315,89 @@ fun StepTrackerDashboard(
                                 tint = Color(0xFF49454F),
                                 modifier = Modifier.size(22.dp)
                             )
+                        }
+
+                        // Top Bar Person Selection Dropdown
+                        Box {
+                            IconButton(
+                                onClick = { showPersonDropdown = true },
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .testTag("appbar_person_select_button")
+                                    .clip(CircleShape)
+                                    .background(if (showPersonDropdown) Color(0xFFE8DEF8) else Color.Transparent)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = "Benutzer wechseln",
+                                    tint = if (showPersonDropdown) Color(0xFF21005D) else Color(0xFF6750A4),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showPersonDropdown,
+                                onDismissRequest = { showPersonDropdown = false },
+                                modifier = Modifier
+                                    .background(Color(0xFFFEF7FF))
+                                    .border(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            ) {
+                                val isP1 = selectedPerson == "person_1"
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isP1) Icons.Default.CheckCircle else Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = if (isP1) Color(0xFF6750A4) else Color(0xFF49454F),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = person1Name,
+                                                fontWeight = if (isP1) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isP1) Color(0xFF21005D) else Color(0xFF191C1E),
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.selectPerson("person_1")
+                                        showPersonDropdown = false
+                                    },
+                                    modifier = Modifier.testTag("dropdown_select_person_1")
+                                )
+
+                                val isP2 = selectedPerson == "person_2"
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isP2) Icons.Default.CheckCircle else Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = if (isP2) Color(0xFF6750A4) else Color(0xFF49454F),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = person2Name,
+                                                fontWeight = if (isP2) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isP2) Color(0xFF21005D) else Color(0xFF191C1E),
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.selectPerson("person_2")
+                                        showPersonDropdown = false
+                                    },
+                                    modifier = Modifier.testTag("dropdown_select_person_2")
+                                )
+                            }
                         }
 
                         IconButton(
@@ -425,15 +509,6 @@ fun StepTrackerDashboard(
                     }
                 }
             } else {
-                item {
-                    PersonSelectorRow(
-                        selectedPerson = selectedPerson,
-                        person1Name = person1Name,
-                        person2Name = person2Name,
-                        onPersonSelected = { viewModel.selectPerson(it) }
-                    )
-                }
-
                 if (activeTab == 0) {
 
             // TODAY LOGGING CTA CARD: Gorgeous banner styled dynamically based on active person's today entry
@@ -472,17 +547,60 @@ fun StepTrackerDashboard(
                                     color = Color(0xFF21005D),
                                     letterSpacing = 1.sp
                                 )
-                                Text(
-                                    text = if (hasTodayEntry) {
-                                        val todaySteps = allEntries.find { it.date == todayStr }?.steps ?: 0
-                                        "$activePersonLabel hat heute bereits $todaySteps Schritte!"
-                                    } else {
-                                        "Heute fehlen noch Einträge für $activePersonLabel."
-                                    },
-                                    fontSize = 13.sp,
-                                    color = Color(0xFF49454F),
-                                    fontWeight = FontWeight.Medium
-                                )
+                                if (hasTodayEntry) {
+                                    val todaySteps = allEntries.find { it.date == todayStr }?.steps ?: 0
+                                    Column(
+                                        horizontalAlignment = Alignment.Start,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color.White, shape = RoundedCornerShape(8.dp))
+                                                .border(BorderStroke(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.5f)), shape = RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = activePersonLabel,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF6750A4)
+                                            )
+                                        }
+                                        Text(
+                                            text = "hat heute bereits $todaySteps Schritte!",
+                                            fontSize = 13.sp,
+                                            color = Color(0xFF49454F),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                } else {
+                                    Column(
+                                        horizontalAlignment = Alignment.Start,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(Color.White, shape = RoundedCornerShape(8.dp))
+                                                .border(BorderStroke(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.5f)), shape = RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = activePersonLabel,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF6750A4)
+                                            )
+                                        }
+                                        Text(
+                                            text = "Heute fehlen noch Einträge.",
+                                            fontSize = 13.sp,
+                                            color = Color(0xFF49454F),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
                             }
 
                             // CTA Button with steps image as requested
@@ -564,38 +682,7 @@ fun StepTrackerDashboard(
                             }
                         }
 
-                        if (!hasTodayEntry) {
-                            HorizontalDivider(color = Color(0xFFCAC4D0).copy(alpha = 0.3f))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Erfassung testen?",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF49454F),
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Button(
-                                    onClick = { viewModel.generateDemoWeekData(context) },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF6750A4),
-                                        contentColor = Color.White
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.height(30.dp),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(12.dp).padding(end = 2.dp)
-                                    )
-                                    Text("Muster-Woche eintragen", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
+
                     }
                 }
             }
@@ -964,13 +1051,22 @@ fun StepTrackerDashboard(
 
                 if (visibleHistoryDays.isNotEmpty()) {
                     item {
-                        Text(
-                            text = "Historie (${if (selectedPerson == "person_2") person2Name else person1Name})",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1D1B20),
+                        Column(
                             modifier = Modifier.padding(top = 8.dp)
-                        )
+                        ) {
+                            Text(
+                                text = "Historie",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1D1B20)
+                            )
+                            Text(
+                                text = if (selectedPerson == "person_2") person2Name else person1Name,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF6750A4)
+                            )
+                        }
                     }
 
                     item {
@@ -1001,13 +1097,22 @@ fun StepTrackerDashboard(
                     }
                 } else if (historyDays.isNotEmpty()) {
                     item {
-                        Text(
-                            text = "Historie (${if (selectedPerson == "person_2") person2Name else person1Name})",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1D1B20),
+                        Column(
                             modifier = Modifier.padding(top = 8.dp)
-                        )
+                        ) {
+                            Text(
+                                text = "Historie",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1D1B20)
+                            )
+                            Text(
+                                text = if (selectedPerson == "person_2") person2Name else person1Name,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF6750A4)
+                            )
+                        }
                     }
                     item {
                         Box(
@@ -1090,9 +1195,15 @@ fun StepTrackerDashboard(
             initialDateStr = dialogInitialDate,
             initialStepsStr = dialogInitialSteps,
             initialRemarkStr = dialogInitialRemark,
+            selectedPerson = selectedPerson,
+            person1Name = person1Name,
+            person2Name = person2Name,
             onDismiss = { showAddDialog = false },
-            onSave = { date, steps, remark ->
-                viewModel.saveSteps(date, steps, remark)
+            onSave = { date, steps, remark, personId ->
+                viewModel.saveSteps(date, steps, remark, personId)
+                if (personId != selectedPerson) {
+                    viewModel.selectPerson(personId)
+                }
                 showAddDialog = false
             }
         )
@@ -1637,13 +1748,18 @@ fun MonthlyBarGraph(
                             .fillMaxWidth(),
                         contentAlignment = Alignment.BottomCenter
                     ) {
+                        val hasDualBars = inactiveSteps > 0
+                        val barWidth = if (hasDualBars) 0.45f else 0.75f
+                        val activeOffset = if (hasDualBars) 2.5.dp else 0.dp
+                        val inactiveOffset = if (hasDualBars) (-2.5).dp else 0.dp
+
                         // Inactive Bar (drawn behind and offset)
                         if (inactiveSteps > 0) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(0.75f)
+                                    .fillMaxWidth(barWidth)
                                     .fillMaxHeight(animatedInactiveFraction.coerceIn(0.02f, 1f))
-                                    .offset(x = (-2).dp)
+                                    .offset(x = inactiveOffset)
                                     .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                                     .background(
                                         Brush.verticalGradient(
@@ -1659,8 +1775,9 @@ fun MonthlyBarGraph(
                         // Active Bar
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(0.75f)
+                                .fillMaxWidth(barWidth)
                                 .fillMaxHeight(animatedFraction.coerceIn(0.02f, 1f))
+                                .offset(x = activeOffset)
                                 .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                                 .background(
                                     if (day.steps > 0) {
@@ -1880,13 +1997,18 @@ fun WeeklyBarGraph(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.BottomCenter
                 ) {
+                    val hasDualBars = inactiveSteps > 0
+                    val barWidth = if (hasDualBars) 0.36f else 0.55f
+                    val activeOffset = if (hasDualBars) 4.5.dp else 0.dp
+                    val inactiveOffset = if (hasDualBars) (-4.5).dp else 0.dp
+
                     // Inactive Bar (drawn behind and offset)
                     if (inactiveSteps > 0) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(0.55f)
+                                .fillMaxWidth(barWidth)
                                 .fillMaxHeight(animatedInactiveFraction.coerceIn(0.02f, 1f))
-                                .offset(x = (-4).dp)
+                                .offset(x = inactiveOffset)
                                 .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
                                 .background(
                                     Brush.verticalGradient(
@@ -1902,8 +2024,9 @@ fun WeeklyBarGraph(
                     // Bar (Active person)
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(0.55f)
+                            .fillMaxWidth(barWidth)
                             .fillMaxHeight(animatedFraction.coerceIn(0.02f, 1f))
+                            .offset(x = activeOffset)
                             .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
                             .background(
                                 if (day.steps > 0) {
@@ -2243,13 +2366,17 @@ fun StepEntryDialog(
     initialDateStr: String,
     initialStepsStr: String,
     initialRemarkStr: String = "",
+    selectedPerson: String,
+    person1Name: String,
+    person2Name: String,
     onDismiss: () -> Unit,
-    onSave: (String, Int, String) -> Unit
+    onSave: (String, Int, String, String) -> Unit
 ) {
     val context = LocalContext.current
     var dateStr by remember { mutableStateOf(initialDateStr) }
     var stepsField by remember { mutableStateOf(initialStepsStr) }
     var remarkField by remember { mutableStateOf(initialRemarkStr) }
+    var chosenPerson by remember { mutableStateOf(selectedPerson) }
     var showErrorMsg by remember { mutableStateOf("") }
 
     val formattedGermanDate = remember(dateStr) {
@@ -2276,6 +2403,88 @@ fun StepEntryDialog(
                     .padding(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // PERSON SELECTION
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Person auswählen",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6750A4),
+                        letterSpacing = 0.5.sp
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isP1 = chosenPerson == "person_1"
+                        val isP2 = chosenPerson == "person_2"
+                        
+                        Button(
+                            onClick = { chosenPerson = "person_1" },
+                            modifier = Modifier.weight(1f).height(44.dp).testTag("dialog_select_person_1"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isP1) Color(0xFFEADDFF) else Color.Transparent,
+                                contentColor = if (isP1) Color(0xFF21005D) else Color(0xFF49454F)
+                            ),
+                            border = if (isP1) null else BorderStroke(1.dp, Color(0xFFCAC4D0)),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isP1) Icons.Default.CheckCircle else Icons.Default.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = person1Name,
+                                    fontWeight = if (isP1) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { chosenPerson = "person_2" },
+                            modifier = Modifier.weight(1f).height(44.dp).testTag("dialog_select_person_2"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isP2) Color(0xFFEADDFF) else Color.Transparent,
+                                contentColor = if (isP2) Color(0xFF21005D) else Color(0xFF49454F)
+                            ),
+                            border = if (isP2) null else BorderStroke(1.dp, Color(0xFFCAC4D0)),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isP2) Icons.Default.CheckCircle else Icons.Default.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = person2Name,
+                                    fontWeight = if (isP2) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // DATE PICKER FIELD
                 OutlinedButton(
                     onClick = {
@@ -2456,7 +2665,7 @@ fun StepEntryDialog(
                     } else if (parsed > 1000000) {
                         showErrorMsg = "Das ist eine unglaubliche Zahl! Bitte erfasse Schritte unter 1.000.000."
                     } else {
-                        onSave(dateStr, parsed, remarkField)
+                        onSave(dateStr, parsed, remarkField, chosenPerson)
                     }
                 },
                 modifier = Modifier.testTag("dialog_save_button"),
@@ -2582,7 +2791,7 @@ fun rememberFolderDisplayName(context: android.content.Context, uriString: Strin
     return displayNameState.value
 }
 
-fun printMonthlyReport(context: android.content.Context, monthLabel: String, stats: MonthlyStats, stepLengthCm: Int) {
+fun printMonthlyReport(context: android.content.Context, monthLabel: String, stats: MonthlyStats, stepLengthCm: Int, personName: String) {
     val activity = context as? Activity ?: return
     activity.runOnUiThread {
         val webView = WebView(context)
@@ -2597,7 +2806,7 @@ fun printMonthlyReport(context: android.content.Context, monthLabel: String, sta
             }
         }
 
-        val htmlContent = generateMonthlyReportHtml(monthLabel, stats, stepLengthCm)
+        val htmlContent = generateMonthlyReportHtml(monthLabel, stats, stepLengthCm, personName)
         webView.loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null)
     }
 }
@@ -2663,7 +2872,7 @@ fun generateMonthlyChartSvg(daysData: List<DayStepData>): String {
     return sb.toString()
 }
 
-fun generateMonthlyReportHtml(monthLabel: String, stats: MonthlyStats, stepLengthCm: Int): String {
+fun generateMonthlyReportHtml(monthLabel: String, stats: MonthlyStats, stepLengthCm: Int, personName: String): String {
     val totalStepsFormatted = String.format("%,d", stats.totalSteps)
     val avgStepsFormatted = String.format("%,d", stats.averageSteps.toInt())
     val distanceFormatted = String.format("%.2f", stats.totalDistanceKm)
@@ -2764,6 +2973,14 @@ fun generateMonthlyReportHtml(monthLabel: String, stats: MonthlyStats, stepLengt
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
             }
+            .person-sub-header {
+                font-size: 9px;
+                color: #49454F;
+                margin-top: 4px;
+                margin-bottom: 8px;
+                font-weight: normal;
+                text-align: left;
+            }
             table {
                 width: 100%;
                 border-collapse: collapse;
@@ -2811,6 +3028,9 @@ fun generateMonthlyReportHtml(monthLabel: String, stats: MonthlyStats, stepLengt
             <div class="header-container">
                 <h1 class="title-main">📊 Schrittzähler &amp; Aktivität</h1>
                 <p class="subtitle">Bericht für <strong>$monthLabel</strong> &bull; Schrittlänge: $stepLengthCm cm &bull; Gedruckt: $currentDate</p>
+            </div>
+            <div class="person-sub-header">
+                Person: <strong>$personName</strong>
             </div>
             
             <div class="card-wrapper">

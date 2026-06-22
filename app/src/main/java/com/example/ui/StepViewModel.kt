@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -122,23 +123,7 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
         viewModelScope.launch {
             _isBackupRestoreLoading.value = true
             try {
-                val entries = allEntries.value
-                val stepLength = stepLengthCm.value
-                
-                val rootJson = JSONObject().apply {
-                    put("stepLengthCm", stepLength)
-                    
-                    val entriesArray = JSONArray()
-                    entries.forEach { entry ->
-                        val entryObj = JSONObject().apply {
-                            put("date", entry.date)
-                            put("steps", entry.steps)
-                            put("remark", entry.remark)
-                        }
-                        entriesArray.put(entryObj)
-                    }
-                    put("entries", entriesArray)
-                }
+                val rootJson = buildAllUsersBackupJson()
 
                 val customDir = _customBackupDirUri.value
                 val customName = _customBackupFileName.value
@@ -233,59 +218,47 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
     }
 
     fun shareBackupFile(context: Context) {
-        try {
-            val customDir = _customBackupDirUri.value
-            val customName = _customBackupFileName.value
-            val uri: Uri
+        viewModelScope.launch {
+            try {
+                val customDir = _customBackupDirUri.value
+                val customName = _customBackupFileName.value
+                val uri: Uri
 
-            if (customDir.isNotEmpty()) {
-                val treeUri = Uri.parse(customDir)
-                val dirDoc = DocumentFile.fromTreeUri(context, treeUri)
-                val fileDoc = dirDoc?.findFile(customName)
-                if (fileDoc != null && fileDoc.exists()) {
-                    uri = fileDoc.uri
-                } else {
-                    throw Exception("Datei '$customName' existiert nicht. Bitte führe zuerst ein Backup durch.")
-                }
-            } else {
-                val fallbackFile = getBackupFile(context)
-                val backupFile = File(fallbackFile.parentFile, customName)
-                
-                // Write current data first
-                val entries = allEntries.value
-                val stepLength = stepLengthCm.value
-                val rootJson = JSONObject().apply {
-                    put("stepLengthCm", stepLength)
-                    val entriesArray = JSONArray()
-                    entries.forEach { entry ->
-                        val entryObj = JSONObject().apply {
-                            put("date", entry.date)
-                            put("steps", entry.steps)
-                            put("remark", entry.remark)
-                        }
-                        entriesArray.put(entryObj)
+                if (customDir.isNotEmpty()) {
+                    val treeUri = Uri.parse(customDir)
+                    val dirDoc = DocumentFile.fromTreeUri(context, treeUri)
+                    val fileDoc = dirDoc?.findFile(customName)
+                    if (fileDoc != null && fileDoc.exists()) {
+                        uri = fileDoc.uri
+                    } else {
+                        throw Exception("Datei '$customName' existiert nicht. Bitte führe zuerst ein Backup durch.")
                     }
-                    put("entries", entriesArray)
+                } else {
+                    val fallbackFile = getBackupFile(context)
+                    val backupFile = File(fallbackFile.parentFile, customName)
+                    
+                    // Write current data first
+                    val rootJson = buildAllUsersBackupJson()
+                    backupFile.writeText(rootJson.toString(2), Charsets.UTF_8)
+
+                    uri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        backupFile
+                    )
                 }
-                backupFile.writeText(rootJson.toString(2), Charsets.UTF_8)
 
-                uri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    backupFile
-                )
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val chooser = Intent.createChooser(intent, "Sicherungsdatei teilen")
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(chooser)
+            } catch (e: Exception) {
+                Toast.makeText(context, "Teilen fehlgeschlagen: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
-
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/json"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            val chooser = Intent.createChooser(intent, "Sicherungsdatei teilen")
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(chooser)
-        } catch (e: Exception) {
-            Toast.makeText(context, "Teilen fehlgeschlagen: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -294,22 +267,7 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val entries = allEntries.value
-                val stepLength = stepLengthCm.value
-                
-                val rootJson = JSONObject().apply {
-                    put("stepLengthCm", stepLength)
-                    val entriesArray = JSONArray()
-                    entries.forEach { entry ->
-                        val entryObj = JSONObject().apply {
-                            put("date", entry.date)
-                            put("steps", entry.steps)
-                            put("remark", entry.remark)
-                        }
-                        entriesArray.put(entryObj)
-                    }
-                    put("entries", entriesArray)
-                }
+                val rootJson = buildAllUsersBackupJson()
 
                 val customDir = _customBackupDirUri.value
                 val customName = _customBackupFileName.value
@@ -352,10 +310,32 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
         }
         
         var importedStepLength: Int? = null
+        var importedStepLengthP1: Int? = null
+        var importedStepLengthP2: Int? = null
+        var importedPerson1Name: String? = null
+        var importedPerson2Name: String? = null
+        var importedSelectedPerson: String? = null
         val importedEntries = mutableListOf<StepEntry>()
         
         if (jsonStr.trim().startsWith("{")) {
             val rootJson = JSONObject(jsonStr)
+            
+            if (rootJson.has("stepLengthCmPerson1")) {
+                importedStepLengthP1 = rootJson.getInt("stepLengthCmPerson1")
+            }
+            if (rootJson.has("stepLengthCmPerson2")) {
+                importedStepLengthP2 = rootJson.getInt("stepLengthCmPerson2")
+            }
+            if (rootJson.has("person1Name")) {
+                importedPerson1Name = rootJson.getString("person1Name")
+            }
+            if (rootJson.has("person2Name")) {
+                importedPerson2Name = rootJson.getString("person2Name")
+            }
+            if (rootJson.has("selectedPerson")) {
+                importedSelectedPerson = rootJson.getString("selectedPerson")
+            }
+
             if (rootJson.has("stepLengthCm")) {
                 importedStepLength = rootJson.getInt("stepLengthCm")
             }
@@ -370,9 +350,13 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
                 }
             } else {
                 val keys = rootJson.keys()
+                val excludes = setOf(
+                    "stepLengthCm", "stepLengthCmPerson1", "stepLengthCmPerson2",
+                    "person1Name", "person2Name", "selectedPerson", "version"
+                )
                 while (keys.hasNext()) {
                     val key = keys.next()
-                    if (key != "stepLengthCm") {
+                    if (key !in excludes) {
                         val valObj = rootJson.optJSONObject(key)
                         if (valObj != null && valObj.has("steps")) {
                             val remark = valObj.optString("remark", "")
@@ -400,17 +384,25 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
             return false
         }
         
-        if (importedEntries.isEmpty() && importedStepLength == null) {
+        if (importedEntries.isEmpty() && importedStepLength == null && importedStepLengthP1 == null) {
             Toast.makeText(context, "Keine lesbaren Daten in der Datei gefunden!", Toast.LENGTH_LONG).show()
             return false
         }
         
-        importedStepLength?.let {
-            updateStepLength(it)
+        importedPerson1Name?.let { updatePerson1Name(it) }
+        importedPerson2Name?.let { updatePerson2Name(it) }
+        importedStepLengthP1?.let { updateStepLengthPerson1(it) }
+        importedStepLengthP2?.let { updateStepLengthPerson2(it) }
+        importedSelectedPerson?.let { selectPerson(it) }
+
+        if (importedStepLengthP1 == null && importedStepLength != null) {
+            updateStepLength(importedStepLength)
         }
         
+        val activePerson = _selectedPerson.value
         importedEntries.forEach { entry ->
-            repository.insertOrUpdate(entry.date, entry.steps, entry.remark)
+            val dbKey = resolveDbKey(entry.date, activePerson)
+            repository.insertOrUpdate(dbKey, entry.steps, entry.remark)
         }
         
         return true
@@ -801,9 +793,10 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
         }
     }
 
-    fun saveSteps(date: String, steps: Int, remark: String = "") {
+    fun saveSteps(date: String, steps: Int, remark: String = "", personId: String? = null) {
         viewModelScope.launch {
-            val dbKey = getDbKeyForDate(date, _selectedPerson.value)
+            val targetPerson = personId ?: _selectedPerson.value
+            val dbKey = getDbKeyForDate(date, targetPerson)
             repository.insertOrUpdate(dbKey, steps, remark)
         }
     }
@@ -848,23 +841,7 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
     fun exportDataToUri(context: Context, uri: Uri) {
         viewModelScope.launch {
             try {
-                val entries = allEntries.value
-                val stepLength = stepLengthCm.value
-                
-                val rootJson = JSONObject().apply {
-                    put("stepLengthCm", stepLength)
-                    
-                    val entriesArray = JSONArray()
-                    entries.forEach { entry ->
-                        val entryObj = JSONObject().apply {
-                            put("date", entry.date)
-                            put("steps", entry.steps)
-                            put("remark", entry.remark)
-                        }
-                        entriesArray.put(entryObj)
-                    }
-                    put("entries", entriesArray)
-                }
+                val rootJson = buildAllUsersBackupJson()
                 
                 context.contentResolver.openOutputStream(uri)?.use { os ->
                     os.write(rootJson.toString(2).toByteArray(Charsets.UTF_8))
@@ -897,75 +874,52 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
                     return@launch
                 }
                 
-                var importedStepLength: Int? = null
-                val importedEntries = mutableListOf<StepEntry>()
-                
-                if (jsonStr.trim().startsWith("{")) {
-                    val rootJson = JSONObject(jsonStr)
-                    if (rootJson.has("stepLengthCm")) {
-                        importedStepLength = rootJson.getInt("stepLengthCm")
-                    }
-                    if (rootJson.has("entries")) {
-                        val array = rootJson.getJSONArray("entries")
-                        for (i in 0 until array.length()) {
-                            val obj = array.getJSONObject(i)
-                            val date = obj.getString("date")
-                            val steps = obj.getInt("steps")
-                            val remark = obj.optString("remark", "")
-                            importedEntries.add(StepEntry(date, steps, remark))
-                        }
-                    } else {
-                        val keys = rootJson.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            if (key != "stepLengthCm") {
-                                val valObj = rootJson.optJSONObject(key)
-                                if (valObj != null && valObj.has("steps")) {
-                                    val remark = valObj.optString("remark", "")
-                                    importedEntries.add(StepEntry(key, valObj.getInt("steps"), remark))
-                                } else {
-                                    val stepsVal = rootJson.optInt(key, -1)
-                                    if (stepsVal >= 0) {
-                                        importedEntries.add(StepEntry(key, stepsVal, ""))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if (jsonStr.trim().startsWith("[")) {
-                    val array = JSONArray(jsonStr)
-                    for (i in 0 until array.length()) {
-                        val obj = array.getJSONObject(i)
-                        val date = obj.getString("date")
-                        val steps = obj.getInt("steps")
-                        val remark = obj.optString("remark", "")
-                        importedEntries.add(StepEntry(date, steps, remark))
-                    }
-                } else {
-                    Toast.makeText(context, "Ungültiges Dateiformat!", Toast.LENGTH_LONG).show()
-                    return@launch
+                val success = importFromJsonString(context, jsonStr)
+                if (success) {
+                    Toast.makeText(context, "Daten erfolgreich wiederhergestellt!", Toast.LENGTH_LONG).show()
                 }
-                
-                if (importedEntries.isEmpty() && importedStepLength == null) {
-                    Toast.makeText(context, "Keine lesbaren Daten in der Datei gefunden!", Toast.LENGTH_LONG).show()
-                    return@launch
-                }
-                
-                // Save imported data
-                importedStepLength?.let {
-                    updateStepLength(it)
-                }
-                
-                importedEntries.forEach { entry ->
-                    val dbKey = getDbKeyForDate(entry.date, _selectedPerson.value)
-                    repository.insertOrUpdate(dbKey, entry.steps, entry.remark)
-                }
-                
-                Toast.makeText(context, "${importedEntries.size} Einträge erfolgreich wiederhergestellt!", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "Wiederherstellung fehlgeschlagen: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                 e.printStackTrace()
             }
+        }
+    }
+
+    private fun resolveDbKey(entryDate: String, activePerson: String): String {
+        if (entryDate.startsWith("person_2|") || entryDate.startsWith("person_1|")) {
+            return entryDate
+        }
+        return getDbKeyForDate(entryDate, activePerson)
+    }
+
+    private suspend fun buildAllUsersBackupJson(): JSONObject {
+        val rawEntries = repository.allEntries.first()
+        val stepLength = stepLengthCm.value
+        val stepLengthP1 = _stepLengthCmPerson1.value
+        val stepLengthP2 = _stepLengthCmPerson2.value
+        val name1 = _person1Name.value
+        val name2 = _person2Name.value
+        val selPerson = _selectedPerson.value
+
+        return JSONObject().apply {
+            put("version", 2)
+            put("stepLengthCm", stepLength)
+            put("stepLengthCmPerson1", stepLengthP1)
+            put("stepLengthCmPerson2", stepLengthP2)
+            put("person1Name", name1)
+            put("person2Name", name2)
+            put("selectedPerson", selPerson)
+
+            val entriesArray = JSONArray()
+            rawEntries.forEach { entry ->
+                val entryObj = JSONObject().apply {
+                    put("date", entry.date)
+                    put("steps", entry.steps)
+                    put("remark", entry.remark)
+                }
+                entriesArray.put(entryObj)
+            }
+            put("entries", entriesArray)
         }
     }
 }
