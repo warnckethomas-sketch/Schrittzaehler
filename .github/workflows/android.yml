@@ -53,12 +53,12 @@ jobs:
             fi
           fi
 
-      - name: Setup Gradle 8.5
+      - name: Setup Gradle 9.3.1
         run: |
-          echo "Downloading Gradle 8.5..."
-          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
-          unzip -q gradle-8.5-bin.zip
-          echo "PATH=$(pwd)/gradle-8.5/bin:$PATH" >> $GITHUB_ENV
+          echo "Downloading Gradle 9.3.1..."
+          wget -q https://services.gradle.org/distributions/gradle-9.3.1-bin.zip
+          unzip -q gradle-9.3.1-bin.zip
+          echo "PATH=$(pwd)/gradle-9.3.1/bin:$PATH" >> $GITHUB_ENV
 
       # Run unit and Robolectric tests
       - name: Run Unit Tests
