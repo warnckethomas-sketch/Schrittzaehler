@@ -53,16 +53,20 @@ jobs:
             fi
           fi
 
-      - name: Prepare Gradlew Permissions
-        run: chmod +x gradlew
+      - name: Setup Gradle 8.5
+        run: |
+          echo "Downloading Gradle 8.5..."
+          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle-8.5-bin.zip
+          echo "PATH=$(pwd)/gradle-8.5/bin:$PATH" >> $GITHUB_ENV
 
       # Run unit and Robolectric tests
       - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest --no-configuration-cache
+        run: gradle testDebugUnitTest --no-configuration-cache
 
       # Build Debug APK
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-configuration-cache
+        run: gradle assembleDebug --no-configuration-cache
 
       # Ensure apk folder exists and copy the newly built APK over
       - name: Copy and Rename APK
