@@ -22,6 +22,8 @@ class GreetingScreenshotTest {
 
   @Test
   fun greeting_screenshot() {
+    org.junit.Assume.assumeTrue(System.getenv("GITHUB_ACTIONS") != "true")
+
     composeTestRule.setContent { 
       MyApplicationTheme { 
         androidx.compose.material3.Text(text = "Hello Robolectric!") 

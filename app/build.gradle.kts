@@ -121,3 +121,8 @@ dependencies {
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
 }
+
+tasks.withType<Test>().configureEach {
+  systemProperty("file.encoding", "UTF-8")
+}
+
