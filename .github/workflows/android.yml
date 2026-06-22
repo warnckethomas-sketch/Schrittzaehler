@@ -22,20 +22,43 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Fetch all history for all branches and tags
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git clone --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" .
+            git fetch origin +refs/pull/${{ github.event.number }}/merge:
+            git checkout -f FETCH_HEAD
+          else
+            git clone --depth=1 --branch="${{ github.ref_name }}" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" .
+          fi
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+        run: |
+          echo "Configuring JDK 17"
+          if [ -d "$JAVA_HOME_17_X64" ]; then
+            echo "JAVA_HOME=$JAVA_HOME_17_X64" >> $GITHUB_ENV
+            echo "PATH=$JAVA_HOME_17_X64/bin:$PATH" >> $GITHUB_ENV
+          else
+            # Try fallback paths on the runner
+            found=false
+            for jvm in /usr/lib/jvm/*17* /usr/lib/jvm/*jdk-17*; do
+              if [ -d "$jvm" ]; then
+                echo "JAVA_HOME=$jvm" >> $GITHUB_ENV
+                echo "PATH=$jvm/bin:$PATH" >> $GITHUB_ENV
+                found=true
+                break
+              fi
+            done
+            if [ "$found" = "false" ]; then
+              echo "Warning: JDK 17 directory not found, relying on runner default java environment"
+            fi
+          fi
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.5
+      - name: Setup Gradle 8.5
+        run: |
+          echo "Downloading Gradle 8.5..."
+          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle-8.5-bin.zip
+          echo "PATH=$(pwd)/gradle-8.5/bin:$PATH" >> $GITHUB_ENV
 
       # Run unit and Robolectric tests
       - name: Run Unit Tests
