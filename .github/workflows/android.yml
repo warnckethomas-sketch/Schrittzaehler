@@ -60,6 +60,15 @@ jobs:
           unzip -q gradle-9.3.1-bin.zip
           echo "PATH=$(pwd)/gradle-9.3.1/bin:$PATH" >> $GITHUB_ENV
 
+      - name: Restore Debug Keystore
+        run: |
+          if [ -f "debug.keystore.base64" ]; then
+            echo "Restoring debug keystore..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            echo "debug.keystore.base64 not found, skipping restore"
+          fi
+
       # Run unit and Robolectric tests
       - name: Run Unit Tests
         run: gradle testDebugUnitTest --no-configuration-cache
