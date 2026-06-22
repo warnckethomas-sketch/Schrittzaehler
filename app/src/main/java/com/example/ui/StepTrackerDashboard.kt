@@ -1797,9 +1797,15 @@ fun MonthlyBarGraph(
                                     }
                                 )
                                 .then(
-                                    if (isSelected) {
+                                    if (day.steps > 0) {
                                         Modifier.border(
-                                            width = 1.dp,
+                                            width = if (isSelected) 1.8.dp else 0.8.dp,
+                                            color = Color(0xFF4F378B),
+                                            shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)
+                                        )
+                                    } else if (isSelected) {
+                                        Modifier.border(
+                                            width = 1.1.dp,
                                             color = Color(0xFF6750A4),
                                             shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)
                                         )
@@ -2046,7 +2052,13 @@ fun WeeklyBarGraph(
                                 }
                             )
                             .then(
-                                if (isSelected) {
+                                if (day.steps > 0) {
+                                    Modifier.border(
+                                        width = if (isSelected) 2.5.dp else 1.2.dp,
+                                        color = Color(0xFF4F378B),
+                                        shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                                    )
+                                } else if (isSelected) {
                                     Modifier.border(
                                         width = 1.5.dp,
                                         color = Color(0xFF6750A4),
