@@ -49,14 +49,21 @@ jobs:
       - name: Copy and Rename APK
         run: |
           mkdir -p apk
-          cp app/build/outputs/apk/debug/app-debug.apk apk/Schrittzaehler.apk
+          rm -f apk/*.apk
+          RAW_NAME=$(jq -r '.name' metadata.json)
+          if [ -z "$RAW_NAME" ] || [ "$RAW_NAME" = "null" ]; then
+            RAW_NAME="app"
+          fi
+          # Convert spaces to underscores and filter standard filename characters
+          CLEAN_NAME=$(echo "$RAW_NAME" | sed 's/ /_/g' | tr -cd 'A-Za-z0-9_äöüÄÖÜß-')
+          cp app/build/outputs/apk/debug/app-debug.apk "apk/${CLEAN_NAME}.apk"
 
       # Commit and Push APK back to repo if it changed, using the skip ci tag
       - name: Commit and Push APK
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git add apk/Schrittzaehler.apk
+          git add apk/
           if git diff --staged --quiet; then
             echo "No changes in APK to commit"
           else
