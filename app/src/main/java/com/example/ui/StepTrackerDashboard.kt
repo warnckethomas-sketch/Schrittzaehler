@@ -784,6 +784,53 @@ fun StepTrackerDashboard(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Inline Person Switcher with dark violet accent border and stylish layout
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFF3EDF7))
+                                .border(BorderStroke(1.5.dp, Color(0xFF4F378B)), RoundedCornerShape(12.dp))
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            listOf("person_1" to person1Name, "person_2" to person2Name).forEach { (personId, name) ->
+                                val isSelected = personId == selectedPerson
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) Color(0xFF4F378B) else Color.Transparent)
+                                        .clickable { viewModel.selectPerson(personId) }
+                                        .padding(vertical = 10.dp)
+                                        .testTag("activity_chart_person_tab_$personId"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.Person,
+                                            contentDescription = if (isSelected) "Ausgewählter Benutzer: $name" else "Zu $name wechseln",
+                                            tint = if (isSelected) Color.White else Color(0xFF4F378B),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.White else Color(0xFF4F378B)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         val hasAnyEntries = allEntries.isNotEmpty() || inactiveEntries.isNotEmpty()
 
                         if (hasAnyEntries) {
