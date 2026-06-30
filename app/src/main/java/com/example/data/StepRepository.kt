@@ -92,6 +92,30 @@ class StepRepository(
         preferencesManager.customBackupFileName = name
     }
 
+    fun isAlarmEnabled(): Boolean {
+        return preferencesManager.alarmEnabled
+    }
+
+    fun setAlarmEnabled(enabled: Boolean) {
+        preferencesManager.alarmEnabled = enabled
+    }
+
+    fun getAlarmHour(): Int {
+        return preferencesManager.alarmHour
+    }
+
+    fun setAlarmHour(hour: Int) {
+        preferencesManager.alarmHour = hour
+    }
+
+    fun getAlarmMinute(): Int {
+        return preferencesManager.alarmMinute
+    }
+
+    fun setAlarmMinute(minute: Int) {
+        preferencesManager.alarmMinute = minute
+    }
+
     suspend fun importBackupData(backupData: BackupData) {
         saveStepLength(backupData.stepLengthCm)
         backupData.entries.forEach { entry ->

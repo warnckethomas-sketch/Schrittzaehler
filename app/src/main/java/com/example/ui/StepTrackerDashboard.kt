@@ -1,6 +1,9 @@
 package com.example.ui
 
 import android.app.DatePickerDialog
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import android.os.Build
 import android.content.Intent
 import android.net.Uri
 import android.print.PrintAttributes
@@ -95,6 +98,8 @@ fun StepTrackerDashboard(
     var showStepLengthConfig by remember { mutableStateOf(false) }
     var showExitConfirmationDialog by remember { mutableStateOf(false) }
     var showPersonDropdown by remember { mutableStateOf(false) }
+    var showPrintPersonDialog by remember { mutableStateOf(false) }
+    var pendingPrintPerson by remember { mutableStateOf<String?>(null) }
     var activeTab by remember { mutableStateOf(0) } // 0 = Dashboard, 1 = Historie & Backup
     var visibleMonthsLimit by remember { mutableStateOf(1) }
     val listState = rememberLazyListState()
@@ -120,6 +125,24 @@ fun StepTrackerDashboard(
         if (activeTab == 0) {
             visibleMonthsLimit = 1
         }
+    }
+
+    LaunchedEffect(pendingPrintPerson) {
+        val personId = pendingPrintPerson ?: return@LaunchedEffect
+        // Switch person in ViewModel
+        viewModel.selectPerson(personId)
+        // Wait a brief period for the Room flow and combined StateFlows to process and emit the new data
+        kotlinx.coroutines.delay(250)
+        // Print the report using the updated monthlyStats
+        printMonthlyReport(
+            context = context,
+            monthLabel = monthlyStats.monthLabel,
+            stats = monthlyStats,
+            stepLengthCm = if (personId == "person_2") stepLengthCmPerson2 else stepLengthCmPerson1,
+            personName = if (personId == "person_2") person2Name else person1Name
+        )
+        // Reset the state
+        pendingPrintPerson = null
     }
 
     // Selected day state (for detailing the tapped bar)
@@ -301,7 +324,7 @@ fun StepTrackerDashboard(
 
                         IconButton(
                             onClick = {
-                                printMonthlyReport(context, monthlyStats.monthLabel, monthlyStats, stepLengthCm, activePersonLabel)
+                                showPrintPersonDialog = true
                             },
                             modifier = Modifier
                                 .size(40.dp)
@@ -501,6 +524,10 @@ fun StepTrackerDashboard(
                             onPerson2NameChanged = { viewModel.updatePerson2Name(it) },
                             stepLengthCmPerson2 = stepLengthCmPerson2,
                             onStepLengthCmPerson2Changed = { viewModel.updateStepLengthPerson2(it) }
+                        )
+
+                        AlarmSettingsCard(
+                            viewModel = viewModel
                         )
 
                         LocalBackupCard(
@@ -1291,6 +1318,171 @@ fun StepTrackerDashboard(
             },
             containerColor = Color.White,
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showPrintPersonDialog) {
+        var chosenPrintPerson by remember { mutableStateOf(selectedPerson) }
+        
+        AlertDialog(
+            onDismissRequest = { showPrintPersonDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Print,
+                        contentDescription = null,
+                        tint = Color(0xFF6750A4),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Bericht drucken",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF21005D),
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Wählen Sie aus, für wen der Monatsbericht gedruckt werden soll:",
+                        color = Color(0xFF49454F),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Option 1: Person 1
+                    val isP1 = chosenPrintPerson == "person_1"
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { chosenPrintPerson = "person_1" }
+                            .testTag("print_select_person_1"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isP1) Color(0xFFF3EDF7) else Color.White
+                        ),
+                        border = BorderStroke(
+                            width = if (isP1) 2.dp else 1.dp,
+                            color = if (isP1) Color(0xFF6750A4) else Color(0xFFCAC4D0).copy(alpha = 0.6f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = if (isP1) Color(0xFF6750A4) else Color(0xFF49454F),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = person1Name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = if (isP1) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isP1) Color(0xFF21005D) else Color(0xFF1D1B20)
+                                )
+                            }
+                            if (isP1) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Ausgewählt",
+                                    tint = Color(0xFF6750A4),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Option 2: Person 2
+                    val isP2 = chosenPrintPerson == "person_2"
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { chosenPrintPerson = "person_2" }
+                            .testTag("print_select_person_2"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isP2) Color(0xFFF3EDF7) else Color.White
+                        ),
+                        border = BorderStroke(
+                            width = if (isP2) 2.dp else 1.dp,
+                            color = if (isP2) Color(0xFF6750A4) else Color(0xFFCAC4D0).copy(alpha = 0.6f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = if (isP2) Color(0xFF6750A4) else Color(0xFF49454F),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = person2Name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = if (isP2) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isP2) Color(0xFF21005D) else Color(0xFF1D1B20)
+                                )
+                            }
+                            if (isP2) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Ausgewählt",
+                                    tint = Color(0xFF6750A4),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPrintPersonDialog = false
+                        pendingPrintPerson = chosenPrintPerson
+                    },
+                    modifier = Modifier.testTag("print_confirm_button")
+                ) {
+                    Text("Drucken", color = Color(0xFF6750A4), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showPrintPersonDialog = false },
+                    modifier = Modifier.testTag("print_cancel_button")
+                ) {
+                    Text("Abbrechen", color = Color(0xFF49454F))
+                }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(20.dp)
         )
     }
 }
@@ -3462,6 +3654,190 @@ fun LocalBackupCard(
                 Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Sicherungsdatei teilen / senden", fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun AlarmSettingsCard(
+    viewModel: StepViewModel
+) {
+    val context = LocalContext.current
+    val alarmEnabled by viewModel.alarmEnabled.collectAsStateWithLifecycle()
+    val alarmHour by viewModel.alarmHour.collectAsStateWithLifecycle()
+    val alarmMinute by viewModel.alarmMinute.collectAsStateWithLifecycle()
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.setAlarmEnabled(true)
+            com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute)
+            Toast.makeText(context, "Erinnerung aktiviert!", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(
+                context,
+                "Benachrichtigungsberechtigung abgelehnt. Erinnerungen können nicht gesendet werden.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("alarm_settings_card"),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFF3EDF7)
+        ),
+        border = BorderStroke(1.dp, Color(0xFFCAC4D0).copy(alpha = 0.6f))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.NotificationsActive,
+                    contentDescription = null,
+                    tint = Color(0xFF6750A4),
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "Tägliche Erinnerung",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1D1B20)
+                )
+            }
+
+            Text(
+                text = "Erhalte eine tägliche Benachrichtigung, falls am aktuellen Tag noch keine Schritte für eine der Personen eingetragen wurden.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF49454F)
+            )
+
+            HorizontalDivider(color = Color(0xFFCAC4D0).copy(alpha = 0.5f))
+
+            // Toggle Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Erinnerung aktivieren",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF1D1B20)
+                    )
+                    Text(
+                        text = if (alarmEnabled) "Aktiviert für ${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr" else "Deaktiviert",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF49454F)
+                    )
+                }
+
+                Switch(
+                    checked = alarmEnabled,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                val permissionCheck = ContextCompat.checkSelfPermission(
+                                    context,
+                                    android.Manifest.permission.POST_NOTIFICATIONS
+                                )
+                                if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+                                    viewModel.setAlarmEnabled(true)
+                                    com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute)
+                                    Toast.makeText(context, "Erinnerung aktiviert!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            } else {
+                                viewModel.setAlarmEnabled(true)
+                                com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute)
+                                Toast.makeText(context, "Erinnerung aktiviert!", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            viewModel.setAlarmEnabled(false)
+                            com.example.data.AlarmHelper.cancelAlarm(context)
+                            Toast.makeText(context, "Erinnerung deaktiviert.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.testTag("alarm_switch"),
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF6750A4),
+                        uncheckedThumbColor = Color(0xFF49454F),
+                        uncheckedTrackColor = Color(0xFFE7E0EC)
+                    )
+                )
+            }
+
+            if (alarmEnabled) {
+                HorizontalDivider(color = Color(0xFFCAC4D0).copy(alpha = 0.3f))
+
+                // Time Selection Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            android.app.TimePickerDialog(
+                                context,
+                                { _, selectedHour, selectedMinute ->
+                                    viewModel.setAlarmTime(selectedHour, selectedMinute)
+                                    com.example.data.AlarmHelper.scheduleAlarm(context, selectedHour, selectedMinute)
+                                    Toast.makeText(context, "Erinnerung auf ${String.format("%02d:%02d", selectedHour, selectedMinute)} Uhr aktualisiert.", Toast.LENGTH_SHORT).show()
+                                },
+                                alarmHour,
+                                alarmMinute,
+                                true
+                            ).show()
+                        }
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = null,
+                            tint = Color(0xFF6750A4),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Uhrzeit einstellen",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF1D1B20)
+                            )
+                            Text(
+                                text = "Tippen zum Ändern",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF49454F)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6750A4)
+                    )
+                }
             }
         }
     }

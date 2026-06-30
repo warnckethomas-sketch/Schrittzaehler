@@ -80,6 +80,27 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
     private val _customBackupFileName = MutableStateFlow(repository.getCustomBackupFileName())
     val customBackupFileName: StateFlow<String> = _customBackupFileName.asStateFlow()
 
+    private val _alarmEnabled = MutableStateFlow(repository.isAlarmEnabled())
+    val alarmEnabled: StateFlow<Boolean> = _alarmEnabled.asStateFlow()
+
+    private val _alarmHour = MutableStateFlow(repository.getAlarmHour())
+    val alarmHour: StateFlow<Int> = _alarmHour.asStateFlow()
+
+    private val _alarmMinute = MutableStateFlow(repository.getAlarmMinute())
+    val alarmMinute: StateFlow<Int> = _alarmMinute.asStateFlow()
+
+    fun setAlarmEnabled(enabled: Boolean) {
+        _alarmEnabled.value = enabled
+        repository.setAlarmEnabled(enabled)
+    }
+
+    fun setAlarmTime(hour: Int, minute: Int) {
+        _alarmHour.value = hour
+        _alarmMinute.value = minute
+        repository.setAlarmHour(hour)
+        repository.setAlarmMinute(minute)
+    }
+
     fun setAutoBackupEnabled(enabled: Boolean) {
         _isAutoBackupEnabled.value = enabled
         repository.setAutoBackupEnabled(enabled)

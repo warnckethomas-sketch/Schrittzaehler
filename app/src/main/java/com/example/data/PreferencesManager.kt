@@ -20,7 +20,28 @@ class PreferencesManager(context: Context) {
         private const val KEY_SELECTED_PERSON = "pref_selected_person"
         private const val KEY_PERSON_1_NAME = "pref_person_1_name"
         private const val KEY_PERSON_2_NAME = "pref_person_2_name"
+        private const val KEY_ALARM_ENABLED = "pref_alarm_enabled"
+        private const val KEY_ALARM_HOUR = "pref_alarm_hour"
+        private const val KEY_ALARM_MINUTE = "pref_alarm_minute"
     }
+
+    var alarmEnabled: Boolean
+        get() = sharedPreferences.getBoolean(KEY_ALARM_ENABLED, false)
+        set(value) {
+            sharedPreferences.edit().putBoolean(KEY_ALARM_ENABLED, value).apply()
+        }
+
+    var alarmHour: Int
+        get() = sharedPreferences.getInt(KEY_ALARM_HOUR, 20)
+        set(value) {
+            sharedPreferences.edit().putInt(KEY_ALARM_HOUR, value).apply()
+        }
+
+    var alarmMinute: Int
+        get() = sharedPreferences.getInt(KEY_ALARM_MINUTE, 0)
+        set(value) {
+            sharedPreferences.edit().putInt(KEY_ALARM_MINUTE, value).apply()
+        }
 
     var stepLengthCm: Int
         get() = sharedPreferences.getInt(KEY_STEP_LENGTH, DEFAULT_STEP_LENGTH)
