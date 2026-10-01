@@ -15,6 +15,7 @@ import android.print.PrintManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.text.SimpleDateFormat
+import java.util.Locale
 import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -92,6 +93,7 @@ fun StepTrackerDashboard(
     val selectedWeekMonday by viewModel.selectedWeekMonday.collectAsStateWithLifecycle()
     val allEntries by viewModel.allEntries.collectAsStateWithLifecycle()
     val inactiveEntries by viewModel.inactiveEntries.collectAsStateWithLifecycle()
+    val rawAllEntries by viewModel.rawAllEntries.collectAsStateWithLifecycle()
     val selectedPerson by viewModel.selectedPerson.collectAsStateWithLifecycle()
     val person1Name by viewModel.person1Name.collectAsStateWithLifecycle()
     val person2Name by viewModel.person2Name.collectAsStateWithLifecycle()
@@ -120,7 +122,6 @@ fun StepTrackerDashboard(
     var showExitConfirmationDialog by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
     var showPrintPersonDialog by remember { mutableStateOf(false) }
-    var pendingPrintPerson by remember { mutableStateOf<String?>(null) }
     var activeTab by remember { mutableStateOf(0) } // 0 = Dashboard, 1 = Historie & Backup
     var visibleMonthsLimit by remember { mutableStateOf(1) }
     val listState = rememberLazyListState()
@@ -153,24 +154,6 @@ fun StepTrackerDashboard(
                 }
             }
         }
-    }
-
-    LaunchedEffect(pendingPrintPerson) {
-        val personId = pendingPrintPerson ?: return@LaunchedEffect
-        // Switch person in ViewModel
-        viewModel.selectPerson(personId)
-        // Wait a brief period for the Room flow and combined StateFlows to process and emit the new data
-        kotlinx.coroutines.delay(250)
-        // Print the report using the updated monthlyStats
-        printMonthlyReport(
-            context = context,
-            monthLabel = monthlyStats.monthLabel,
-            stats = monthlyStats,
-            stepLengthCm = if (personId == "person_2") stepLengthCmPerson2 else stepLengthCmPerson1,
-            personName = if (personId == "person_2") person2Name else person1Name
-        )
-        // Reset the state
-        pendingPrintPerson = null
     }
 
     // Selected day state (for detailing the tapped bar)
@@ -931,6 +914,9 @@ fun StepTrackerDashboard(
                         } else {
                             viewModel.navigateToCurrentMonth()
                         }
+                    },
+                    onPrint = {
+                        showPrintPersonDialog = true
                     }
                 )
             }
@@ -1504,8 +1490,26 @@ fun StepTrackerDashboard(
     }
 
     if (showPrintPersonDialog) {
-        var chosenPrintPerson by remember { mutableStateOf(selectedPerson) }
-        
+        var chosenPrintPerson by remember(showPrintPersonDialog) { mutableStateOf(selectedPerson) }
+        var chosenPrintMonthDateStr by remember(showPrintPersonDialog, monthlyStats.monthDateStr) {
+            mutableStateOf(
+                if (monthlyStats.monthDateStr.isNotEmpty()) monthlyStats.monthDateStr
+                else DateUtils.getCurrentMonthFirstDay()
+            )
+        }
+        var isMonthDropdownExpanded by remember { mutableStateOf(false) }
+
+        val availableMonths = remember(rawAllEntries) {
+            DateUtils.getAvailableMonthsList(rawAllEntries)
+        }
+
+        val previewStats = remember(chosenPrintPerson, chosenPrintMonthDateStr, rawAllEntries, stepLengthCmPerson1, stepLengthCmPerson2) {
+            viewModel.calculateMonthlyStats(chosenPrintPerson, chosenPrintMonthDateStr)
+        }
+
+        val chosenPersonName = if (chosenPrintPerson == "person_2") person2Name else person1Name
+        val chosenStepLength = if (chosenPrintPerson == "person_2") stepLengthCmPerson2 else stepLengthCmPerson1
+
         AlertDialog(
             onDismissRequest = { showPrintPersonDialog = false },
             title = {
@@ -1520,7 +1524,7 @@ fun StepTrackerDashboard(
                         modifier = Modifier.size(24.dp)
                     )
                     Text(
-                        text = "Bericht drucken",
+                        text = "Zusammenfassung drucken",
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleLarge
@@ -1529,115 +1533,356 @@ fun StepTrackerDashboard(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Text(
-                        text = "Wählen Sie aus, für wen der Monatsbericht gedruckt werden soll:",
+                        text = "Wählen Sie Person und Monat für die Druckzusammenfassung aus:",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Option 1: Person 1
-                    val isP1 = chosenPrintPerson == "person_1"
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { chosenPrintPerson = "person_1" }
-                            .testTag("print_select_person_1"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isP1) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                        ),
-                        border = BorderStroke(
-                            width = if (isP1) 2.dp else 1.dp,
-                            color = if (isP1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+
+                    // 1. Person Selection
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Person:",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
                         )
-                    ) {
+
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            val isP1 = chosenPrintPerson == "person_1"
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { chosenPrintPerson = "person_1" }
+                                    .testTag("print_select_person_1"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isP1) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ),
+                                border = BorderStroke(
+                                    width = if (isP1) 2.dp else 1.dp,
+                                    color = if (isP1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = if (isP1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    text = person1Name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = if (isP1) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isP1) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = if (isP1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = person1Name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isP1) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isP1) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    if (isP1) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Ausgewählt",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
                             }
-                            if (isP1) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Ausgewählt",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+
+                            val isP2 = chosenPrintPerson == "person_2"
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { chosenPrintPerson = "person_2" }
+                                    .testTag("print_select_person_2"),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isP2) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ),
+                                border = BorderStroke(
+                                    width = if (isP2) 2.dp else 1.dp,
+                                    color = if (isP2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
                                 )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = if (isP2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = person2Name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isP2) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isP2) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    if (isP2) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Ausgewählt",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                    
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
-                    // Option 2: Person 2
-                    val isP2 = chosenPrintPerson == "person_2"
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { chosenPrintPerson = "person_2" }
-                            .testTag("print_select_person_2"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isP2) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                        ),
-                        border = BorderStroke(
-                            width = if (isP2) 2.dp else 1.dp,
-                            color = if (isP2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
-                        )
-                    ) {
+
+                    // 2. Month Selection
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Monat:",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            val currentMonthFirstDay = DateUtils.getCurrentMonthFirstDay()
+                            if (DateUtils.getMonthLabel(chosenPrintMonthDateStr) != DateUtils.getMonthLabel(currentMonthFirstDay)) {
+                                TextButton(
+                                    onClick = { chosenPrintMonthDateStr = currentMonthFirstDay },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                    modifier = Modifier.testTag("print_reset_to_current_month")
+                                ) {
+                                    Text(
+                                        text = "Aktueller Monat",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                            ),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
                         ) {
                             Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = if (isP2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
+                                IconButton(
+                                    onClick = {
+                                        chosenPrintMonthDateStr = DateUtils.getPreviousMonthFirstDay(chosenPrintMonthDateStr)
+                                    },
+                                    modifier = Modifier.testTag("print_prev_month_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                        contentDescription = "Vorheriger Monat",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                Box {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                                        modifier = Modifier
+                                            .clickable { isMonthDropdownExpanded = true }
+                                            .testTag("print_month_dropdown_trigger")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CalendarToday,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = DateUtils.getMonthLabel(chosenPrintMonthDateStr),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowDropDown,
+                                                contentDescription = "Monat wählen",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = isMonthDropdownExpanded,
+                                        onDismissRequest = { isMonthDropdownExpanded = false },
+                                        modifier = Modifier.heightIn(max = 280.dp)
+                                    ) {
+                                        availableMonths.forEach { (firstDayStr, label) ->
+                                            val isSelected = DateUtils.getMonthLabel(firstDayStr) == DateUtils.getMonthLabel(chosenPrintMonthDateStr)
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = label,
+                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        if (isSelected) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = null,
+                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                                onClick = {
+                                                    chosenPrintMonthDateStr = firstDayStr
+                                                    isMonthDropdownExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        chosenPrintMonthDateStr = DateUtils.getNextMonthFirstDay(chosenPrintMonthDateStr)
+                                    },
+                                    modifier = Modifier.testTag("print_next_month_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "Nächster Monat",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Live Preview Card
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Vorschau (${chosenPersonName})",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = person2Name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = if (isP2) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isP2) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    text = "${previewStats.trackedDaysCount} von ${previewStats.daysData.size} Tagen",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            if (isP2) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Ausgewählt",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "${String.format(Locale.GERMANY, "%,d", previewStats.totalSteps)} Schritte",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "Distanz: ${String.format(Locale.GERMANY, "%.2f", previewStats.totalDistanceKm)} km",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                if (previewStats.trackedDaysCount > 0) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "Ø ${String.format(Locale.GERMANY, "%,d", previewStats.averageSteps.toInt())}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Schritte / Tag",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (previewStats.trackedDaysCount == 0) {
+                                Text(
+                                    text = "(Für diesen Monat liegen noch keine Einträge vor)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                                 )
                             }
                         }
@@ -1645,14 +1890,27 @@ fun StepTrackerDashboard(
                 }
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
+                        val statsToPrint = viewModel.calculateMonthlyStats(chosenPrintPerson, chosenPrintMonthDateStr)
+                        printMonthlyReport(
+                            context = context,
+                            monthLabel = statsToPrint.monthLabel,
+                            stats = statsToPrint,
+                            stepLengthCm = chosenStepLength,
+                            personName = chosenPersonName
+                        )
                         showPrintPersonDialog = false
-                        pendingPrintPerson = chosenPrintPerson
                     },
                     modifier = Modifier.testTag("print_confirm_button")
                 ) {
-                    Text("Drucken", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Icon(
+                        imageVector = Icons.Default.Print,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Drucken", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -2022,7 +2280,8 @@ fun PeriodSelectionHeader(
     monthLabel: String,
     onPrev: () -> Unit,
     onNext: () -> Unit,
-    onCurrent: () -> Unit
+    onCurrent: () -> Unit,
+    onPrint: (() -> Unit)? = null
 ) {
     val displayRange = remember(activePeriodType, mondayDateStr, monthLabel) {
         if (activePeriodType == PeriodType.WEEK) {
@@ -2093,6 +2352,20 @@ fun PeriodSelectionHeader(
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
+            }
+
+            if (activePeriodType == PeriodType.MONTH && onPrint != null) {
+                IconButton(
+                    onClick = onPrint,
+                    modifier = Modifier.testTag("month_print_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Print,
+                        contentDescription = "Monatsbericht drucken",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             IconButton(
@@ -3349,8 +3622,10 @@ fun printMonthlyReport(context: android.content.Context, monthLabel: String, sta
             override fun onPageFinished(view: WebView?, url: String?) {
                 val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as? PrintManager
                 if (printManager != null) {
-                    val printAdapter = webView.createPrintDocumentAdapter("Schrittzähler_Monatsbericht_${monthLabel.replace(" ", "_")}")
-                    val jobName = "Schrittzähler - $monthLabel"
+                    val sanitizedPerson = personName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                    val sanitizedMonth = monthLabel.replace(" ", "_")
+                    val printAdapter = webView.createPrintDocumentAdapter("Schrittzähler_${sanitizedPerson}_${sanitizedMonth}")
+                    val jobName = "Schrittzähler - $personName - $monthLabel"
                     printManager.print(jobName, printAdapter, PrintAttributes.Builder().build())
                 }
             }

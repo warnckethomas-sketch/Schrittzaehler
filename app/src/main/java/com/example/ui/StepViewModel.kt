@@ -838,6 +838,56 @@ class StepViewModel(private val repository: StepRepository) : ViewModel() {
         }
     }
 
+    fun calculateMonthlyStats(personId: String, dateInMonth: String): MonthlyStats {
+        val rawEntries = rawAllEntries.value
+        val entries = if (personId == "person_2") {
+            rawEntries.filter { it.date.startsWith("person_2|") }
+                .map { it.copy(date = it.date.substringAfter("person_2|")) }
+        } else {
+            rawEntries.filter { !it.date.startsWith("person_2|") && !it.date.startsWith("person_1|") }
+                .map {
+                    if (it.date.startsWith("person_1|")) {
+                        it.copy(date = it.date.substringAfter("person_1|"))
+                    } else {
+                        it
+                    }
+                }
+        }
+        val length = if (personId == "person_2") _stepLengthCmPerson2.value else _stepLengthCmPerson1.value
+        val daysList = DateUtils.getDaysOfMonthList(dateInMonth)
+        val entriesMap = entries.associateBy { it.date }
+
+        val daysData = daysList.map { dateStr ->
+            val entry = entriesMap[dateStr]
+            val steps = entry?.steps ?: 0
+            val distanceKm = (steps.toLong() * length) / 100000.0
+            DayStepData(
+                dateStr = dateStr,
+                label = DateUtils.getDayOfWeekLabel(dateStr),
+                steps = steps,
+                distanceKm = distanceKm,
+                remark = entry?.remark ?: ""
+            )
+        }
+
+        val loggedDays = daysData.filter { it.steps > 0 }
+        val trackedDaysCount = loggedDays.size
+        val totalSteps = daysData.sumOf { it.steps.toLong() }
+        val averageSteps = if (trackedDaysCount > 0) totalSteps.toDouble() / trackedDaysCount else 0.0
+        val totalDistanceKm = (totalSteps * length) / 100000.0
+        val monthLabel = DateUtils.getMonthLabel(dateInMonth)
+
+        return MonthlyStats(
+            monthDateStr = if (daysList.isNotEmpty()) daysList.first() else dateInMonth,
+            monthLabel = monthLabel,
+            daysData = daysData,
+            trackedDaysCount = trackedDaysCount,
+            totalSteps = totalSteps,
+            averageSteps = averageSteps,
+            totalDistanceKm = totalDistanceKm
+        )
+    }
+
     fun saveSteps(date: String, steps: Int, remark: String = "", personId: String? = null) {
         viewModelScope.launch {
             val targetPerson = personId ?: _selectedPerson.value
@@ -1130,6 +1180,75 @@ object DateUtils {
             getMondayOfWeek(sdf.format(cal.time))
         } catch (e: java.lang.Exception) {
             dateStr
+        }
+    }
+
+    fun getCurrentMonthFirstDay(): String {
+        val sdf = getDateFormat()
+        return try {
+            val cal = Calendar.getInstance(Locale.GERMANY)
+            cal.time = Date()
+            cal.set(Calendar.DAY_OF_MONTH, 1)
+            sdf.format(cal.time)
+        } catch (e: Exception) {
+            getTodayString()
+        }
+    }
+
+    fun getPreviousMonthFirstDay(dateStr: String): String {
+        val sdf = getDateFormat()
+        return try {
+            val date = sdf.parse(dateStr) ?: Date()
+            val cal = Calendar.getInstance(Locale.GERMANY)
+            cal.time = date
+            cal.set(Calendar.DAY_OF_MONTH, 1)
+            cal.add(Calendar.MONTH, -1)
+            sdf.format(cal.time)
+        } catch (e: Exception) {
+            dateStr
+        }
+    }
+
+    fun getNextMonthFirstDay(dateStr: String): String {
+        val sdf = getDateFormat()
+        return try {
+            val date = sdf.parse(dateStr) ?: Date()
+            val cal = Calendar.getInstance(Locale.GERMANY)
+            cal.time = date
+            cal.set(Calendar.DAY_OF_MONTH, 1)
+            cal.add(Calendar.MONTH, 1)
+            sdf.format(cal.time)
+        } catch (e: Exception) {
+            dateStr
+        }
+    }
+
+    fun getAvailableMonthsList(entries: List<StepEntry>): List<Pair<String, String>> {
+        val sdf = getDateFormat()
+        val monthKeys = linkedSetOf<String>()
+
+        // Include current month and last 24 months
+        val cal = Calendar.getInstance(Locale.GERMANY)
+        cal.time = Date()
+        cal.set(Calendar.DAY_OF_MONTH, 1)
+        for (i in 0 until 24) {
+            monthKeys.add(sdf.format(cal.time).substring(0, 7))
+            cal.add(Calendar.MONTH, -1)
+        }
+
+        // Add any month present in the database entries
+        for (entry in entries) {
+            val cleanDate = entry.date.substringAfter("|")
+            if (cleanDate.length >= 7) {
+                monthKeys.add(cleanDate.substring(0, 7))
+            }
+        }
+
+        // Sort descending (newest month first)
+        return monthKeys.sortedDescending().map { monthKey ->
+            val firstDayStr = "$monthKey-01"
+            val label = getMonthLabel(firstDayStr)
+            Pair(firstDayStr, label)
         }
     }
 }
