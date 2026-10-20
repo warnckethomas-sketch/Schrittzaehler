@@ -140,6 +140,9 @@ fun StepTrackerDashboard(
             if (p1Done && p2Done) {
                 viewModel.setAlarmEnabled(false)
                 com.example.data.AlarmHelper.cancelAlarm(context)
+                com.example.data.AlarmHelper.cancelRetryAlarm(context)
+                val notificationManager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                notificationManager?.cancel(1002)
                 Toast.makeText(context, "Alle heutigen Einträge vollständig! Tägliche Erinnerung wurde automatisch deaktiviert.", Toast.LENGTH_LONG).show()
             }
         }
@@ -206,15 +209,21 @@ fun StepTrackerDashboard(
         }
     }
 
-    BackHandler(enabled = showStepLengthConfig || activeTab == 1 || showAddDialog || showPrintPersonDialog) {
-        if (showStepLengthConfig) {
+    BackHandler {
+        if (showTopMenu) {
+            showTopMenu = false
+        } else if (showExitConfirmationDialog) {
+            showExitConfirmationDialog = false
+        } else if (showStepLengthConfig) {
             showStepLengthConfig = false
-        } else if (activeTab == 1) {
-            activeTab = 0
         } else if (showAddDialog) {
             showAddDialog = false
         } else if (showPrintPersonDialog) {
             showPrintPersonDialog = false
+        } else if (activeTab == 1) {
+            activeTab = 0
+        } else {
+            showExitConfirmationDialog = true
         }
     }
 
@@ -571,70 +580,15 @@ fun StepTrackerDashboard(
             }
         },
         bottomBar = {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 4.dp
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                ) {
-                    HorizontalDivider(
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Universal Back Button with Left Arrow ("Zurück") for all pages
-                        OutlinedButton(
-                            onClick = {
-                                if (showStepLengthConfig) {
-                                    showStepLengthConfig = false
-                                } else if (activeTab == 1) {
-                                    activeTab = 0
-                                } else if (showAddDialog) {
-                                    showAddDialog = false
-                                } else if (showPrintPersonDialog) {
-                                    showPrintPersonDialog = false
-                                } else {
-                                    showExitConfirmationDialog = true
-                                }
-                            },
-                            modifier = Modifier
-                                .height(48.dp)
-                                .testTag("global_back_button"),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Zurück",
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Zurück",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                        }
-
-                        Text(
-                            text = if (showStepLengthConfig) "Konfiguration" else if (activeTab == 1) "Verlauf & Backup" else "Dashboard",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)
+                )
             }
         },
         floatingActionButton = {
