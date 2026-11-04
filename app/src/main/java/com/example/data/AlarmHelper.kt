@@ -12,7 +12,7 @@ object AlarmHelper {
     private const val ALARM_REQ_CODE = 4001
     private const val ALARM_RETRY_REQ_CODE = 4002
 
-    fun scheduleAlarm(context: Context, hour: Int, minute: Int) {
+    fun scheduleAlarm(context: Context, hour: Int, minute: Int, forceTomorrow: Boolean = false) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
 
         val calendar = Calendar.getInstance().apply {
@@ -21,8 +21,8 @@ object AlarmHelper {
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
 
-            // If selected time is in the past, schedule for tomorrow
-            if (timeInMillis <= System.currentTimeMillis()) {
+            // If forced to tomorrow or if selected time is in the past, schedule for tomorrow
+            if (forceTomorrow || timeInMillis <= System.currentTimeMillis()) {
                 add(Calendar.DAY_OF_YEAR, 1)
             }
         }

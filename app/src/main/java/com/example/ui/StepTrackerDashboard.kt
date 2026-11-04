@@ -132,18 +132,26 @@ fun StepTrackerDashboard(
     val lastBackupTime by viewModel.lastBackupTime.collectAsStateWithLifecycle()
     val alarmEnabled by viewModel.alarmEnabled.collectAsStateWithLifecycle()
 
-    LaunchedEffect(rawAllEntries, alarmEnabled) {
+    val alarmHour by viewModel.alarmHour.collectAsStateWithLifecycle()
+    val alarmMinute by viewModel.alarmMinute.collectAsStateWithLifecycle()
+
+    LaunchedEffect(rawAllEntries, alarmEnabled, alarmHour, alarmMinute) {
         if (alarmEnabled) {
             val today = DateUtils.getTodayString()
             val p1Done = rawAllEntries.any { it.date == today && it.steps > 0 }
             val p2Done = rawAllEntries.any { it.date == "person_2|$today" && it.steps > 0 }
             if (p1Done && p2Done) {
-                viewModel.setAlarmEnabled(false)
-                com.example.data.AlarmHelper.cancelAlarm(context)
+                // All entries for today are complete!
+                // Cancel today's retry alarm and dismiss today's notification
                 com.example.data.AlarmHelper.cancelRetryAlarm(context)
                 val notificationManager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
                 notificationManager?.cancel(1002)
-                Toast.makeText(context, "Alle heutigen Einträge vollständig! Tägliche Erinnerung wurde automatisch deaktiviert.", Toast.LENGTH_LONG).show()
+
+                // Do NOT deactivate alarmEnabled! The daily reminder stays active and is scheduled for tomorrow
+                com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute, forceTomorrow = true)
+            } else {
+                // Entries still missing for today: schedule regular alarm (fires today if time is in the future, else tomorrow)
+                com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute, forceTomorrow = false)
             }
         }
     }
@@ -4305,13 +4313,19 @@ fun AlarmSettingsCard(
     val alarmEnabled by viewModel.alarmEnabled.collectAsStateWithLifecycle()
     val alarmHour by viewModel.alarmHour.collectAsStateWithLifecycle()
     val alarmMinute by viewModel.alarmMinute.collectAsStateWithLifecycle()
+    val rawAllEntries by viewModel.rawAllEntries.collectAsStateWithLifecycle()
+
+    val today = DateUtils.getTodayString()
+    val p1Done = rawAllEntries.any { it.date == today && it.steps > 0 }
+    val p2Done = rawAllEntries.any { it.date == "person_2|$today" && it.steps > 0 }
+    val isTodayComplete = p1Done && p2Done
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             viewModel.setAlarmEnabled(true)
-            com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute)
+            com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute, forceTomorrow = isTodayComplete)
             Toast.makeText(context, "Erinnerung aktiviert!", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(
@@ -4391,7 +4405,7 @@ fun AlarmSettingsCard(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
 
                 Text(
-                    text = "Erhalte eine tägliche Benachrichtigung, falls am aktuellen Tag noch keine Schritte für eine der Personen eingetragen wurden.",
+                    text = "Erhalte eine tägliche Erinnerung, falls für den aktuellen Tag noch keine Schritte eingetragen wurden. Die Erinnerung bleibt dauerhaft aktiv und wird auch nach Erfassung der Schritte für den nächsten Tag fortgeführt.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -4406,15 +4420,15 @@ fun AlarmSettingsCard(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Erinnerung aktivieren",
+                            text = "Tägliche Erinnerung aktivieren",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = if (alarmEnabled) "Aktiviert für ${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr" else "Deaktiviert",
+                            text = if (alarmEnabled) "Aktiv – erinnert ab ${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr (bleibt dauerhaft aktiv)" else "Deaktiviert",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (alarmEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -4422,22 +4436,23 @@ fun AlarmSettingsCard(
                         checked = alarmEnabled,
                         onCheckedChange = { checked ->
                             if (checked) {
+                                val activateAlarm = {
+                                    viewModel.setAlarmEnabled(true)
+                                    com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute, forceTomorrow = isTodayComplete)
+                                    Toast.makeText(context, "Tägliche Erinnerung aktiviert!", Toast.LENGTH_SHORT).show()
+                                }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     val permissionCheck = ContextCompat.checkSelfPermission(
                                         context,
                                         android.Manifest.permission.POST_NOTIFICATIONS
                                     )
                                     if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
-                                        viewModel.setAlarmEnabled(true)
-                                        com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute)
-                                        Toast.makeText(context, "Erinnerung aktiviert!", Toast.LENGTH_SHORT).show()
+                                        activateAlarm()
                                     } else {
                                         permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                                     }
                                 } else {
-                                    viewModel.setAlarmEnabled(true)
-                                    com.example.data.AlarmHelper.scheduleAlarm(context, alarmHour, alarmMinute)
-                                    Toast.makeText(context, "Erinnerung aktiviert!", Toast.LENGTH_SHORT).show()
+                                    activateAlarm()
                                 }
                             } else {
                                 viewModel.setAlarmEnabled(false)
@@ -4455,33 +4470,22 @@ fun AlarmSettingsCard(
                     )
                 }
 
-                if (alarmEnabled) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 4.dp))
 
-                    // Time Selection Row
+                // Time Selection Section (Always visible so the user can easily set the time at any time)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                android.app.TimePickerDialog(
-                                    context,
-                                    { _, selectedHour, selectedMinute ->
-                                        viewModel.setAlarmTime(selectedHour, selectedMinute)
-                                        com.example.data.AlarmHelper.scheduleAlarm(context, selectedHour, selectedMinute)
-                                        Toast.makeText(context, "Erinnerung auf ${String.format("%02d:%02d", selectedHour, selectedMinute)} Uhr aktualisiert.", Toast.LENGTH_SHORT).show()
-                                    },
-                                    alarmHour,
-                                    alarmMinute,
-                                    true
-                                ).show()
-                            }
-                            .padding(vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.AccessTime,
@@ -4491,25 +4495,192 @@ fun AlarmSettingsCard(
                             )
                             Column {
                                 Text(
-                                    text = "Uhrzeit einstellen",
+                                    text = "Erinnerungs-Uhrzeit",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "Tippen zum Ändern",
+                                    text = "Ab wann soll sich die App melden?",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
-                        Text(
-                            text = "${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                        // Prominent time badge that can also be tapped
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier
+                                .clickable {
+                                    android.app.TimePickerDialog(
+                                        context,
+                                        { _, selectedHour, selectedMinute ->
+                                            viewModel.setAlarmTime(selectedHour, selectedMinute)
+                                            if (alarmEnabled) {
+                                                com.example.data.AlarmHelper.scheduleAlarm(context, selectedHour, selectedMinute, forceTomorrow = isTodayComplete)
+                                                Toast.makeText(context, "Erinnerung auf ${String.format("%02d:%02d", selectedHour, selectedMinute)} Uhr eingestellt.", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "Uhrzeit auf ${String.format("%02d:%02d", selectedHour, selectedMinute)} Uhr gespeichert.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        alarmHour,
+                                        alarmMinute,
+                                        true
+                                    ).show()
+                                }
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    // Button to open TimePicker
+                    OutlinedButton(
+                        onClick = {
+                            android.app.TimePickerDialog(
+                                context,
+                                { _, selectedHour, selectedMinute ->
+                                    viewModel.setAlarmTime(selectedHour, selectedMinute)
+                                    if (alarmEnabled) {
+                                        com.example.data.AlarmHelper.scheduleAlarm(context, selectedHour, selectedMinute, forceTomorrow = isTodayComplete)
+                                        Toast.makeText(context, "Erinnerung auf ${String.format("%02d:%02d", selectedHour, selectedMinute)} Uhr eingestellt.", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Uhrzeit auf ${String.format("%02d:%02d", selectedHour, selectedMinute)} Uhr gespeichert.", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                alarmHour,
+                                alarmMinute,
+                                true
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Uhrzeit frei wählen (${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr)",
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Quick-selection presets
+                    Text(
+                        text = "Schnellauswahl:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(18 to 0, 19 to 0, 20 to 0, 21 to 0, 22 to 0).forEach { (h, m) ->
+                            val isSelected = alarmHour == h && alarmMinute == m
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        viewModel.setAlarmTime(h, m)
+                                        if (alarmEnabled) {
+                                            com.example.data.AlarmHelper.scheduleAlarm(context, h, m, forceTomorrow = isTodayComplete)
+                                            Toast.makeText(context, "Erinnerungszeit auf ${String.format("%02d:%02d", h, m)} Uhr gesetzt.", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Uhrzeit auf ${String.format("%02d:%02d", h, m)} Uhr gespeichert.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${String.format("%02d:%02d", h, m)}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 4.dp))
+
+                // Info / Status Badge
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (alarmEnabled) {
+                        if (isTodayComplete) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                        else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        if (alarmEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (alarmEnabled) {
+                                if (isTodayComplete) Icons.Default.CheckCircle else Icons.Default.NotificationsActive
+                            } else {
+                                Icons.Default.Notifications
+                            },
+                            contentDescription = null,
+                            tint = if (alarmEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column {
+                            Text(
+                                text = if (alarmEnabled) {
+                                    if (isTodayComplete) "Heute erledigt – bleibt für morgen aktiv!" else "Tägliche Erinnerung aktiv"
+                                } else {
+                                    "Erinnerung pausiert"
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (alarmEnabled) {
+                                    if (isTodayComplete) {
+                                        "Alle Schritte für heute sind eingetragen. Die Erinnerung bleibt aktiv und meldet sich morgen ab ${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr wieder, falls noch Schritte fehlen."
+                                    } else {
+                                        "Meldet sich heute ab ${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr (falls noch Schritte fehlen). Sie bleibt dauerhaft aktiv und wird auch am nächsten Tag wieder ausgeführt."
+                                    }
+                                } else {
+                                    "Die Erinnerung ist derzeit ausgeschaltet. Aktiviere den Schalter oben, um dich täglich ab ${String.format("%02d:%02d", alarmHour, alarmMinute)} Uhr erinnern zu lassen."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 

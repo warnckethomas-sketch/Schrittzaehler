@@ -13,7 +13,7 @@ class StepRepository(
     suspend fun insertOrUpdate(date: String, steps: Int, remark: String = "") {
         stepDao.insertOrUpdate(StepEntry(date = date, steps = steps, remark = remark))
         
-        // If the entry being added/updated is for today, cancel the 10-minute retry alarm only if both have steps
+        // If the entry being added/updated is for today, cancel retry alarm and notification if both have steps
         val todayStr = com.example.ui.DateUtils.getTodayString()
         if (date == todayStr || date == "person_2|$todayStr") {
             val p1Entry = stepDao.getEntryByDate(todayStr)
@@ -22,12 +22,23 @@ class StepRepository(
             val p2Done = p2Entry != null && p2Entry.steps > 0
             if (p1Done && p2Done) {
                 AlarmHelper.cancelRetryAlarm(context)
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                notificationManager?.cancel(1002)
+                if (preferencesManager.alarmEnabled) {
+                    AlarmHelper.scheduleAlarm(context, preferencesManager.alarmHour, preferencesManager.alarmMinute, forceTomorrow = true)
+                }
             }
         }
     }
 
     suspend fun deleteByDate(date: String) {
         stepDao.deleteByDate(date)
+        val todayStr = com.example.ui.DateUtils.getTodayString()
+        if (date == todayStr || date == "person_2|$todayStr") {
+            if (preferencesManager.alarmEnabled) {
+                AlarmHelper.scheduleAlarm(context, preferencesManager.alarmHour, preferencesManager.alarmMinute, forceTomorrow = false)
+            }
+        }
     }
 
     suspend fun getEntryByDate(date: String): StepEntry? {

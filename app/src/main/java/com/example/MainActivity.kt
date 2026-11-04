@@ -49,6 +49,15 @@ class MainActivity : ComponentActivity() {
         val preferencesManager = PreferencesManager(applicationContext)
         val repository = StepRepository(database.stepDao(), preferencesManager, applicationContext)
         
+        // Ensure alarm is scheduled if enabled
+        if (preferencesManager.alarmEnabled) {
+            com.example.data.AlarmHelper.scheduleAlarm(
+                applicationContext,
+                preferencesManager.alarmHour,
+                preferencesManager.alarmMinute
+            )
+        }
+        
         // Initialize ViewModel via factory
         val factory = StepViewModelFactory(repository)
         val viewModel = ViewModelProvider(this, factory)[StepViewModel::class.java]

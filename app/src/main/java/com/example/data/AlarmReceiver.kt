@@ -50,14 +50,14 @@ class AlarmReceiver : BroadcastReceiver() {
             Log.w("AlarmReceiver", "Alarm was deferred/delayed by the OS (scheduled: $scheduledTime, current: $currentTime). Skipping notification display.")
             // Reschedule daily alarm for the next day if this is the normal daily alarm, so the cycle continues
             if (!isRetry) {
-                AlarmHelper.scheduleAlarm(context, preferencesManager.alarmHour, preferencesManager.alarmMinute)
+                AlarmHelper.scheduleAlarm(context, preferencesManager.alarmHour, preferencesManager.alarmMinute, forceTomorrow = true)
             }
             return
         }
 
         // Reschedule daily alarm for the next day ONLY if it is the normal daily alarm
         if (!isRetry) {
-            AlarmHelper.scheduleAlarm(context, preferencesManager.alarmHour, preferencesManager.alarmMinute)
+            AlarmHelper.scheduleAlarm(context, preferencesManager.alarmHour, preferencesManager.alarmMinute, forceTomorrow = true)
         }
 
         val todayDateStr = DateUtils.getTodayString()
